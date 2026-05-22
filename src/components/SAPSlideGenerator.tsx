@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ProductSearch from "./ProductSearch";
 import type { SAPProduct } from "../data/sapProducts";
-import type { FormData, RACIEntry, SystemEnvironment } from "../utils/generatePptx";
+import type { FormData, RACIEntry, SystemEnvironment, ResourceEntry } from "../utils/generatePptx";
 import { generatePptx } from "../utils/generatePptx";
+import { generateResourcesFromProducts, PHASE_LABELS } from "../data/resourceMapping";
 
 const DEFAULT_SYSTEMS: SystemEnvironment[] = [
   { name: "Sandbox", enabled: false, description: "Exploration & PoC testing" },
@@ -54,17 +55,30 @@ const DEFAULT_ASSUMPTIONS = [
   "Business sign-off on design documents will be completed within 5 business days",
 ];
 
-type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "review";
+type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "review";
 const STEPS: { key: Step; label: string; icon: string }[] = [
-  { key: "basics", label: "Project Info", icon: "📁" },
-  { key: "products", label: "SAP Products", icon: "🔧" },
-  { key: "systems", label: "Systems", icon: "🖥️" },
-  { key: "scope", label: "Scope", icon: "📋" },
-  { key: "raci", label: "RACI", icon: "👥" },
-  { key: "dependencies", label: "Dependencies", icon: "🔗" },
-  { key: "assumptions", label: "Assumptions", icon: "💡" },
-  { key: "review", label: "Generate", icon: "⬇️" },
+  { key: "basics",       label: "Project Info",  icon: "📁" },
+  { key: "products",     label: "SAP Products",  icon: "🔧" },
+  { key: "systems",      label: "Systems",        icon: "🖥️" },
+  { key: "scope",        label: "Scope",          icon: "📋" },
+  { key: "raci",         label: "RACI",           icon: "👥" },
+  { key: "dependencies", label: "Dependencies",   icon: "🔗" },
+  { key: "assumptions",  label: "Assumptions",    icon: "💡" },
+  { key: "resources",    label: "Resources",      icon: "📊" },
+  { key: "review",       label: "Generate",       icon: "⬇️" },
 ];
+
+// Colour scale matching the PPTX heatmap
+function heatBg(pct: number): string {
+  if (pct === 0)   return "#F2F2F2";
+  if (pct <= 25)   return "#D6E8FA";
+  if (pct <= 50)   return "#90C4F5";
+  if (pct <= 75)   return "#3D9BE9";
+  return                  "#0070F2";
+}
+function heatText(pct: number): string {
+  return pct > 50 ? "#FFFFFF" : "#003D73";
+}
 
 export default function SAPSlideGenerator() {
   const [step, setStep] = useState<Step>("basics");
@@ -83,23 +97,19 @@ export default function SAPSlideGenerator() {
   const [raciEntries, setRaciEntries] = useState<RACIEntry[]>(DEFAULT_RACI);
   const [dependencies, setDependencies] = useState<string[]>(DEFAULT_DEPS);
   const [assumptions, setAssumptions] = useState<string[]>(DEFAULT_ASSUMPTIONS);
+  const [resources, setResources] = useState<ResourceEntry[]>([]);
+
+  // Auto-generate resources when entering the resources step
+  useEffect(() => {
+    if (step === "resources" && resources.length === 0 && selectedProducts.length > 0) {
+      setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id)));
+    }
+  }, [step]);
 
   const currentIndex = STEPS.findIndex(s => s.key === step);
 
   function buildFormData(): FormData {
-    return {
-      projectName,
-      client,
-      projectManager,
-      preparedBy,
-      version,
-      selectedProducts,
-      systems,
-      scopeItems,
-      raciEntries,
-      dependencies,
-      assumptions,
-    };
+    return { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources };
   }
 
   async function handleGenerate() {
@@ -110,43 +120,61 @@ export default function SAPSlideGenerator() {
       setGenerated(true);
     } catch (err) {
       console.error(err);
-      alert("Error generating PPTX. Please check the console.");
+      alert("Error generating PPTX. Check the browser console.");
     } finally {
       setGenerating(false);
     }
   }
 
   function updateListItem(list: string[], setList: (v: string[]) => void, idx: number, val: string) {
-    const updated = [...list];
-    updated[idx] = val;
-    setList(updated);
+    const updated = [...list]; updated[idx] = val; setList(updated);
   }
-
-  function addListItem(list: string[], setList: (v: string[]) => void) {
-    setList([...list, ""]);
-  }
-
-  function removeListItem(list: string[], setList: (v: string[]) => void, idx: number) {
-    setList(list.filter((_, i) => i !== idx));
-  }
+  function addListItem(list: string[], setList: (v: string[]) => void) { setList([...list, ""]); }
+  function removeListItem(list: string[], setList: (v: string[]) => void, idx: number) { setList(list.filter((_, i) => i !== idx)); }
 
   function updateRaciEntry(idx: number, field: keyof RACIEntry, val: string) {
-    const updated = [...raciEntries];
-    updated[idx] = { ...updated[idx], [field]: val };
-    setRaciEntries(updated);
+    const updated = [...raciEntries]; updated[idx] = { ...updated[idx], [field]: val }; setRaciEntries(updated);
+  }
+  function toggleSystem(idx: number) {
+    const updated = [...systems]; updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled }; setSystems(updated);
   }
 
-  function toggleSystem(idx: number) {
-    const updated = [...systems];
-    updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled };
-    setSystems(updated);
+  function updateResourceField(idx: number, field: "role" | "workstream" | "type", val: string) {
+    const updated = [...resources];
+    updated[idx] = { ...updated[idx], [field]: val } as ResourceEntry;
+    setResources(updated);
   }
+  function updateAllocation(rIdx: number, phaseIdx: number, val: string) {
+    const pct = Math.min(100, Math.max(0, parseInt(val) || 0));
+    const updated = [...resources];
+    updated[rIdx] = {
+      ...updated[rIdx],
+      allocations: updated[rIdx].allocations.map((a, i) => i === phaseIdx ? { ...a, percent: pct } : a),
+    };
+    setResources(updated);
+  }
+  function addResourceRow() {
+    setResources([...resources, {
+      role: "", workstream: "", type: "Consultant",
+      allocations: PHASE_LABELS.map(phase => ({ phase, percent: 0 })),
+    }]);
+  }
+  function removeResourceRow(idx: number) { setResources(resources.filter((_, i) => i !== idx)); }
+  function regenerateResources() {
+    if (selectedProducts.length === 0) return;
+    setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id)));
+  }
+
+  // Per-phase FTE totals
+  const phaseTotals = PHASE_LABELS.map((_, pi) =>
+    resources.reduce((sum, r) => sum + (r.allocations[pi]?.percent ?? 0), 0) / 100
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-900 to-blue-800 border-b border-blue-700 shadow-lg">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
           <div className="bg-amber-400 text-blue-900 font-black text-xl px-3 py-1 rounded">SAP</div>
           <div>
             <h1 className="text-white font-bold text-xl">Solution Slide Generator</h1>
@@ -155,22 +183,17 @@ export default function SAPSlideGenerator() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Stepper */}
-        <div className="flex items-center justify-between mb-8 bg-white/5 rounded-2xl p-4 overflow-x-auto">
+        <div className="flex items-center justify-between mb-8 bg-white/5 rounded-2xl p-4 overflow-x-auto gap-1">
           {STEPS.map((s, i) => (
-            <button
-              key={s.key}
-              onClick={() => setStep(s.key)}
-              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all min-w-[60px] ${
-                step === s.key
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
-                  : i < currentIndex
-                  ? "text-green-400 hover:bg-white/10"
-                  : "text-gray-400 hover:bg-white/10"
-              }`}
-            >
-              <span className="text-lg">{i < currentIndex && step !== s.key ? "✅" : s.icon}</span>
+            <button key={s.key} onClick={() => setStep(s.key)}
+              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all min-w-[58px] ${
+                step === s.key ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+                : i < currentIndex ? "text-green-400 hover:bg-white/10"
+                : "text-gray-400 hover:bg-white/10"
+              }`}>
+              <span className="text-base">{i < currentIndex && step !== s.key ? "✅" : s.icon}</span>
               <span className="text-xs font-medium whitespace-nowrap">{s.label}</span>
             </button>
           ))}
@@ -179,9 +202,7 @@ export default function SAPSlideGenerator() {
         {/* Step content */}
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
           <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-4">
-            <h2 className="text-white font-semibold text-lg">
-              {STEPS[currentIndex].icon} {STEPS[currentIndex].label}
-            </h2>
+            <h2 className="text-white font-semibold text-lg">{STEPS[currentIndex].icon} {STEPS[currentIndex].label}</h2>
           </div>
           <div className="p-6 space-y-5">
 
@@ -193,40 +214,24 @@ export default function SAPSlideGenerator() {
                   <input value={projectName} onChange={e => setProjectName(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Client / Organisation</label>
-                  <input value={client} onChange={e => setClient(e.target.value)} placeholder="ACME Corp"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Project Manager</label>
-                  <input value={projectManager} onChange={e => setProjectManager(e.target.value)} placeholder="Jane Smith"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Prepared By</label>
-                  <input value={preparedBy} onChange={e => setPreparedBy(e.target.value)} placeholder="Your Name"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Version</label>
-                  <input value={version} onChange={e => setVersion(e.target.value)} placeholder="1.0"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
+                {[["Client / Organisation", client, setClient, "ACME Corp"], ["Project Manager", projectManager, setProjectManager, "Jane Smith"],
+                  ["Prepared By", preparedBy, setPreparedBy, "Your Name"], ["Version", version, setVersion, "1.0"]].map(([label, val, setter, placeholder]) => (
+                  <div key={label as string}>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">{label as string}</label>
+                    <input value={val as string} onChange={e => (setter as (v: string) => void)(e.target.value)} placeholder={placeholder as string}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                  </div>
+                ))}
               </div>
             )}
 
             {/* ── PRODUCTS ── */}
             {step === "products" && (
               <div>
-                <p className="text-sm text-gray-600 mb-3">
-                  Search and select SAP products that are in scope for this implementation. Results include all major SAP product lines.
-                </p>
-                <ProductSearch selected={selectedProducts} onChange={setSelectedProducts} />
+                <p className="text-sm text-gray-600 mb-3">Search and select SAP products in scope. Resource roles are auto-suggested from your selection on the Resources step.</p>
+                <ProductSearch selected={selectedProducts} onChange={prods => { setSelectedProducts(prods); setResources([]); }} />
                 {selectedProducts.length === 0 && (
-                  <p className="mt-3 text-amber-600 text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    ⚠ Select at least one SAP product to proceed.
-                  </p>
+                  <p className="mt-3 text-amber-600 text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">⚠ Select at least one SAP product to proceed.</p>
                 )}
               </div>
             )}
@@ -234,23 +239,14 @@ export default function SAPSlideGenerator() {
             {/* ── SYSTEMS ── */}
             {step === "systems" && (
               <div>
-                <p className="text-sm text-gray-600 mb-4">
-                  Select the system environments for this project. The landscape slide will show selected systems in order.
-                </p>
+                <p className="text-sm text-gray-600 mb-4">Select deployment environments. These appear in the System Landscape slide and drive transport path labels.</p>
                 <div className="grid grid-cols-2 gap-3">
                   {systems.map((sys, i) => (
-                    <button
-                      key={sys.name}
-                      onClick={() => toggleSystem(i)}
+                    <button key={sys.name} onClick={() => toggleSystem(i)}
                       className={`flex items-start gap-3 p-4 rounded-xl border-2 transition-all text-left ${
-                        sys.enabled
-                          ? "border-blue-600 bg-blue-50"
-                          : "border-gray-200 bg-gray-50 hover:border-blue-300"
-                      }`}
-                    >
-                      <div className={`mt-0.5 w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center ${
-                        sys.enabled ? "bg-blue-600 border-blue-600" : "border-gray-300"
+                        sys.enabled ? "border-blue-600 bg-blue-50" : "border-gray-200 bg-gray-50 hover:border-blue-300"
                       }`}>
+                      <div className={`mt-0.5 w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center ${sys.enabled ? "bg-blue-600 border-blue-600" : "border-gray-300"}`}>
                         {sys.enabled && <span className="text-white text-xs">✓</span>}
                       </div>
                       <div>
@@ -260,31 +256,24 @@ export default function SAPSlideGenerator() {
                     </button>
                   ))}
                 </div>
-                <p className="mt-3 text-blue-600 text-xs bg-blue-50 p-2 rounded">
-                  Selected: {systems.filter(s => s.enabled).map(s => s.name).join(" → ")}
-                </p>
+                <p className="mt-3 text-blue-600 text-xs bg-blue-50 p-2 rounded">Selected: {systems.filter(s => s.enabled).map(s => s.name).join(" → ")}</p>
               </div>
             )}
 
             {/* ── SCOPE ── */}
             {step === "scope" && (
               <div className="space-y-3">
-                <p className="text-sm text-gray-600">Define in-scope deliverables. Each item will appear as a numbered scope item on the Scope slide.</p>
+                <p className="text-sm text-gray-600">Define in-scope deliverables.</p>
                 {scopeItems.map((item, i) => (
                   <div key={i} className="flex gap-2 items-center">
                     <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
-                    <input
-                      value={item}
-                      onChange={e => updateListItem(scopeItems, setScopeItems, i, e.target.value)}
-                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                    />
+                    <input value={item} onChange={e => updateListItem(scopeItems, setScopeItems, i, e.target.value)}
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
                     <button onClick={() => removeListItem(scopeItems, setScopeItems, i)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
                   </div>
                 ))}
-                <button onClick={() => addListItem(scopeItems, setScopeItems)}
-                  className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800 transition-colors">
-                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>
-                  Add scope item
+                <button onClick={() => addListItem(scopeItems, setScopeItems)} className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
+                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add scope item
                 </button>
               </div>
             )}
@@ -292,7 +281,7 @@ export default function SAPSlideGenerator() {
             {/* ── RACI ── */}
             {step === "raci" && (
               <div>
-                <p className="text-sm text-gray-600 mb-3">Define RACI entries. Use single letters R/A/C/I for clean badge rendering on the slide.</p>
+                <p className="text-sm text-gray-600 mb-3">Use single letters R / A / C / I for clean badge rendering.</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -311,14 +300,12 @@ export default function SAPSlideGenerator() {
                           </td>
                           {(["responsible", "accountable", "consulted", "informed"] as const).map(field => (
                             <td key={field} className="px-2 py-1.5">
-                              <input value={entry[field]} onChange={e => updateRaciEntry(i, field, e.target.value)}
-                                maxLength={12}
+                              <input value={entry[field]} onChange={e => updateRaciEntry(i, field, e.target.value)} maxLength={12}
                                 className="w-16 border border-gray-200 rounded px-2 py-1 text-xs text-center font-bold focus:ring-1 focus:ring-blue-400" />
                             </td>
                           ))}
                           <td className="px-2">
-                            <button onClick={() => setRaciEntries(raciEntries.filter((_, j) => j !== i))}
-                              className="text-red-400 hover:text-red-600">×</button>
+                            <button onClick={() => setRaciEntries(raciEntries.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">×</button>
                           </td>
                         </tr>
                       ))}
@@ -327,8 +314,7 @@ export default function SAPSlideGenerator() {
                 </div>
                 <button onClick={() => setRaciEntries([...raciEntries, { activity: "", responsible: "R", accountable: "A", consulted: "C", informed: "I" }])}
                   className="mt-3 flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
-                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>
-                  Add RACI row
+                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add RACI row
                 </button>
               </div>
             )}
@@ -336,7 +322,7 @@ export default function SAPSlideGenerator() {
             {/* ── DEPENDENCIES ── */}
             {step === "dependencies" && (
               <div className="space-y-3">
-                <p className="text-sm text-gray-600">List project and technical dependencies. Each will be shown as a numbered card on the Dependencies slide.</p>
+                <p className="text-sm text-gray-600">List project and technical dependencies.</p>
                 {dependencies.map((dep, i) => (
                   <div key={i} className="flex gap-2 items-center">
                     <span className="w-6 h-6 rounded-full bg-orange-100 text-orange-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
@@ -345,10 +331,8 @@ export default function SAPSlideGenerator() {
                     <button onClick={() => removeListItem(dependencies, setDependencies, i)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
                   </div>
                 ))}
-                <button onClick={() => addListItem(dependencies, setDependencies)}
-                  className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
-                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>
-                  Add dependency
+                <button onClick={() => addListItem(dependencies, setDependencies)} className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
+                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add dependency
                 </button>
               </div>
             )}
@@ -356,7 +340,7 @@ export default function SAPSlideGenerator() {
             {/* ── ASSUMPTIONS ── */}
             {step === "assumptions" && (
               <div className="space-y-3">
-                <p className="text-sm text-gray-600">List project assumptions. Each will appear as a numbered item on the Assumptions slide.</p>
+                <p className="text-sm text-gray-600">List project assumptions.</p>
                 {assumptions.map((item, i) => (
                   <div key={i} className="flex gap-2 items-center">
                     <span className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
@@ -365,11 +349,115 @@ export default function SAPSlideGenerator() {
                     <button onClick={() => removeListItem(assumptions, setAssumptions, i)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
                   </div>
                 ))}
-                <button onClick={() => addListItem(assumptions, setAssumptions)}
-                  className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
-                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>
-                  Add assumption
+                <button onClick={() => addListItem(assumptions, setAssumptions)} className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
+                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add assumption
                 </button>
+              </div>
+            )}
+
+            {/* ── RESOURCES ── */}
+            {step === "resources" && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-600">
+                    Roles are auto-suggested from your selected SAP products. Edit allocations (0–100%) per phase — the slide renders a colour-coded heatmap.
+                  </p>
+                  <button onClick={regenerateResources}
+                    className="ml-4 flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    ↺ Re-generate from products
+                  </button>
+                </div>
+
+                {resources.length === 0 && (
+                  <div className="text-center py-8 text-gray-400">
+                    <p className="text-4xl mb-2">📊</p>
+                    <p className="text-sm">No resources yet.</p>
+                    <button onClick={regenerateResources} className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
+                      Auto-generate from selected products
+                    </button>
+                  </div>
+                )}
+
+                {resources.length > 0 && (
+                  <>
+                    {/* Live heatmap preview */}
+                    <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm mb-4">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            <th className="bg-blue-900 text-white px-3 py-2 text-left font-semibold w-48 min-w-[12rem]">Role</th>
+                            <th className="bg-blue-900 text-white px-2 py-2 text-center font-semibold w-24">Workstream</th>
+                            <th className="bg-blue-900 text-white px-2 py-2 text-center font-semibold w-20">Type</th>
+                            {PHASE_LABELS.map(p => (
+                              <th key={p} className="bg-blue-700 text-white px-2 py-2 text-center font-semibold min-w-[4rem]">{p}</th>
+                            ))}
+                            <th className="bg-blue-900 w-8"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {resources.map((res, ri) => (
+                            <tr key={ri} className="border-b border-gray-100">
+                              <td className="px-2 py-1">
+                                <input value={res.role} onChange={e => updateResourceField(ri, "role", e.target.value)}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-blue-400" />
+                              </td>
+                              <td className="px-1 py-1">
+                                <input value={res.workstream} onChange={e => updateResourceField(ri, "workstream", e.target.value)}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:ring-1 focus:ring-blue-400" />
+                              </td>
+                              <td className="px-1 py-1">
+                                <select value={res.type} onChange={e => updateResourceField(ri, "type", e.target.value)}
+                                  className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-center focus:ring-1 focus:ring-blue-400 bg-white">
+                                  <option>Consultant</option>
+                                  <option>Client</option>
+                                  <option>Both</option>
+                                </select>
+                              </td>
+                              {res.allocations.map((alloc, pi) => (
+                                <td key={pi} className="px-1 py-1">
+                                  <div className="relative">
+                                    <input
+                                      type="number" min={0} max={100} value={alloc.percent}
+                                      onChange={e => updateAllocation(ri, pi, e.target.value)}
+                                      className="w-full rounded px-1 py-0.5 text-xs text-center font-bold focus:ring-1 focus:ring-white border-0 outline-none"
+                                      style={{ background: heatBg(alloc.percent), color: heatText(alloc.percent) }}
+                                    />
+                                  </div>
+                                </td>
+                              ))}
+                              <td className="px-1 text-center">
+                                <button onClick={() => removeResourceRow(ri)} className="text-red-300 hover:text-red-500 text-base leading-none">×</button>
+                              </td>
+                            </tr>
+                          ))}
+                          {/* FTE total row */}
+                          <tr className="bg-blue-900">
+                            <td colSpan={3} className="px-3 py-1.5 text-xs font-bold text-white">Total FTE (estimated)</td>
+                            {phaseTotals.map((fte, i) => (
+                              <td key={i} className="px-2 py-1.5 text-center text-xs font-bold"
+                                style={{ background: heatBg(Math.min(100, fte * 20)), color: fte > 4 ? "#FFFFFF" : "#E0E8F8" }}>
+                                {fte.toFixed(1)}
+                              </td>
+                            ))}
+                            <td></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Legend */}
+                    <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                      <span className="font-medium">Allocation %:</span>
+                      {[["0%","#F2F2F2","#003D73"], ["1–25%","#D6E8FA","#003D73"], ["26–50%","#90C4F5","#003D73"], ["51–75%","#3D9BE9","#FFFFFF"], ["76–100%","#0070F2","#FFFFFF"]].map(([label, bg, fg]) => (
+                        <span key={label} className="px-2 py-0.5 rounded font-semibold" style={{ background: bg, color: fg }}>{label}</span>
+                      ))}
+                    </div>
+
+                    <button onClick={addResourceRow} className="mt-3 flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
+                      <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add resource row
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -385,7 +473,7 @@ export default function SAPSlideGenerator() {
                     <p><span className="text-gray-500">Version:</span> <span className="font-medium">v{version}</span></p>
                   </div>
                   <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-                    <h3 className="font-bold text-green-900 mb-2">🔧 Products</h3>
+                    <h3 className="font-bold text-green-900 mb-2">🔧 Products ({selectedProducts.length})</h3>
                     {selectedProducts.length === 0
                       ? <p className="text-amber-600 text-xs">⚠ No products selected</p>
                       : selectedProducts.map(p => <p key={p.id} className="text-xs text-gray-700">• {p.name}</p>)
@@ -397,32 +485,60 @@ export default function SAPSlideGenerator() {
                   </div>
                   <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
                     <h3 className="font-bold text-orange-900 mb-2">📊 Slides to generate</h3>
-                    {["Title & Overview", "SAP Products", "System Landscape", "Project Scope", "RACI Matrix", "Dependencies", "Assumptions", "Timeline"].map(s => (
+                    {["Title & Overview", "SAP Products", "System Landscape", "Project Scope", "RACI Matrix", "Dependencies", "Assumptions", `Resource Loading (${resources.length} roles)`, "Timeline"].map(s => (
                       <p key={s} className="text-xs text-gray-700">✓ {s}</p>
                     ))}
                   </div>
                 </div>
 
-                <button
-                  onClick={handleGenerate}
-                  disabled={generating || selectedProducts.length === 0}
+                {resources.length > 0 && (
+                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <h3 className="font-bold text-gray-700 mb-2 text-sm">📊 Resource Loading Preview</h3>
+                    <div className="overflow-x-auto">
+                      <table className="text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            <th className="bg-blue-800 text-white px-2 py-1 text-left rounded-tl">Role</th>
+                            {PHASE_LABELS.map(p => <th key={p} className="bg-blue-700 text-white px-3 py-1 text-center">{p}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {resources.slice(0, 8).map((res, ri) => (
+                            <tr key={ri}>
+                              <td className="px-2 py-1 text-gray-700 bg-gray-50 border border-gray-100 font-medium whitespace-nowrap">{res.role || "—"}</td>
+                              {res.allocations.map((alloc, pi) => (
+                                <td key={pi} className="px-3 py-1 text-center font-bold border border-white"
+                                  style={{ background: heatBg(alloc.percent), color: heatText(alloc.percent) }}>
+                                  {alloc.percent > 0 ? `${alloc.percent}%` : "—"}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                          {resources.length > 8 && (
+                            <tr><td colSpan={PHASE_LABELS.length + 1} className="px-2 py-1 text-gray-400 italic text-center">…and {resources.length - 8} more rows</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <button onClick={handleGenerate} disabled={generating || selectedProducts.length === 0}
                   className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg ${
                     generating || selectedProducts.length === 0
                       ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      : "bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white shadow-blue-600/30 hover:shadow-blue-600/50"
-                  }`}
-                >
+                      : "bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white shadow-blue-600/30"
+                  }`}>
                   {generating ? "⏳ Generating PPTX..." : "⬇️ Generate & Download PPTX"}
                 </button>
 
                 {selectedProducts.length === 0 && (
-                  <p className="text-center text-amber-600 text-sm">Please go back and select at least one SAP product.</p>
+                  <p className="text-center text-amber-600 text-sm">Please select at least one SAP product first.</p>
                 )}
-
                 {generated && (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
                     <p className="text-green-800 font-semibold text-lg">✅ PPTX Generated Successfully!</p>
-                    <p className="text-green-600 text-sm mt-1">Your solution deck has been downloaded. Check your browser's download folder.</p>
+                    <p className="text-green-600 text-sm mt-1">Check your browser's download folder.</p>
                   </div>
                 )}
               </div>
@@ -431,19 +547,13 @@ export default function SAPSlideGenerator() {
 
           {/* Navigation */}
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-between">
-            <button
-              onClick={() => setStep(STEPS[Math.max(0, currentIndex - 1)].key)}
-              disabled={currentIndex === 0}
-              className="px-5 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
+            <button onClick={() => setStep(STEPS[Math.max(0, currentIndex - 1)].key)} disabled={currentIndex === 0}
+              className="px-5 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
               ← Back
             </button>
             <span className="text-xs text-gray-400 self-center">Step {currentIndex + 1} of {STEPS.length}</span>
-            <button
-              onClick={() => setStep(STEPS[Math.min(STEPS.length - 1, currentIndex + 1)].key)}
-              disabled={currentIndex === STEPS.length - 1}
-              className="px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
+            <button onClick={() => setStep(STEPS[Math.min(STEPS.length - 1, currentIndex + 1)].key)} disabled={currentIndex === STEPS.length - 1}
+              className="px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
               Next →
             </button>
           </div>

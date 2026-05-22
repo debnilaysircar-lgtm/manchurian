@@ -15,6 +15,18 @@ export interface RACIEntry {
   informed: string;
 }
 
+export interface PhaseAllocation {
+  phase: string;
+  percent: number; // 0–100
+}
+
+export interface ResourceEntry {
+  role: string;
+  workstream: string;
+  type: "Consultant" | "Client" | "Both";
+  allocations: PhaseAllocation[];
+}
+
 export interface FormData {
   projectName: string;
   client: string;
@@ -25,6 +37,7 @@ export interface FormData {
   raciEntries: RACIEntry[];
   dependencies: string[];
   assumptions: string[];
+  resources: ResourceEntry[];
   preparedBy: string;
   version: string;
 }
@@ -429,7 +442,156 @@ function addAssumptionsSlide(pptx: PptxGenJS, data: FormData) {
 }
 
 // ──────────────────────────────────────────────
-// SLIDE 8 – Timeline Overview
+// SLIDE 8 – Resource Loading
+// ──────────────────────────────────────────────
+
+/** Returns a hex fill colour based on allocation percentage (0–100) using a blue heatmap. */
+function allocationColor(pct: number): string {
+  if (pct === 0)       return "F2F2F2"; // empty – light grey
+  if (pct <= 25)       return "D6E8FA"; // very light blue
+  if (pct <= 50)       return "90C4F5"; // light-medium blue
+  if (pct <= 75)       return "3D9BE9"; // medium blue
+  return               "0070F2";        // full SAP blue
+}
+
+/** Text colour that contrasts with the heatmap background. */
+function allocationTextColor(pct: number): string {
+  return pct > 50 ? "FFFFFF" : "003D73";
+}
+
+function addResourceLoadingSlide(pptx: PptxGenJS, data: FormData) {
+  const resources = data.resources.filter(r => r.role.trim());
+  if (resources.length === 0) return;
+
+  // Derive phases from the first resource entry (all entries share the same phase list)
+  const phases = resources[0].allocations.map(a => a.phase);
+  const phaseCount = phases.length;
+
+  // Column layout: Role | Workstream | Type | ...phases
+  const roleW      = 2.5;
+  const wsW        = 1.2;
+  const typeW      = 0.8;
+  const phaseW     = (9.5 - roleW - wsW - typeW) / phaseCount;
+  const tableX     = 0.25;
+  const headerH    = 0.36;
+  const rowH       = 0.34;
+  const startY     = 1.05;
+  const maxRows    = Math.floor((7.0 - startY - headerH - 0.35) / rowH);
+  const visResources = resources.slice(0, maxRows);
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "Resource Loading Plan", "Effort Allocation by Phase (%)");
+
+  // ── Column headers ──
+  const headers = ["Resource / Role", "Workstream", "Type", ...phases];
+  const colWidths = [roleW, wsW, typeW, ...Array(phaseCount).fill(phaseW)];
+  let cx = tableX;
+
+  headers.forEach((h, i) => {
+    const isPhase = i >= 3;
+    slide.addShape("rect", {
+      x: cx, y: startY, w: colWidths[i], h: headerH,
+      fill: { color: isPhase ? COLORS.sapBlue : COLORS.sapDarkBlue },
+      line: { color: COLORS.white, width: 0.4 },
+    });
+    slide.addText(h, {
+      x: cx + 0.04, y: startY, w: colWidths[i] - 0.08, h: headerH,
+      fontSize: isPhase ? 8 : 8.5, bold: true, color: COLORS.white,
+      fontFace: FONT, align: "center",
+    });
+    cx += colWidths[i];
+  });
+
+  // ── Resource rows ──
+  const typeColors: Record<string, string> = {
+    Consultant: COLORS.sapBlue,
+    Client:     COLORS.green,
+    Both:       COLORS.purple,
+  };
+
+  visResources.forEach((res, ri) => {
+    const rowY   = startY + headerH + ri * rowH;
+    const rowBg  = ri % 2 === 0 ? COLORS.rowAlt : COLORS.white;
+    let rx = tableX;
+
+    // Role
+    slide.addShape("rect", { x: rx, y: rowY, w: roleW, h: rowH, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.25 } });
+    slide.addText(res.role, { x: rx + 0.07, y: rowY + 0.04, w: roleW - 0.14, h: rowH - 0.08, fontSize: 8, color: COLORS.darkGray, fontFace: FONT });
+    rx += roleW;
+
+    // Workstream
+    slide.addShape("rect", { x: rx, y: rowY, w: wsW, h: rowH, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.25 } });
+    slide.addText(res.workstream, { x: rx + 0.04, y: rowY + 0.04, w: wsW - 0.08, h: rowH - 0.08, fontSize: 7.5, color: COLORS.textGray, fontFace: FONT, align: "center" });
+    rx += wsW;
+
+    // Type badge
+    slide.addShape("rect", { x: rx, y: rowY, w: typeW, h: rowH, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.25 } });
+    const typeColor = typeColors[res.type] ?? COLORS.sapBlue;
+    slide.addShape("roundRect", { x: rx + 0.05, y: rowY + 0.06, w: typeW - 0.1, h: rowH - 0.12, fill: { color: typeColor }, rectRadius: 0.04 });
+    slide.addText(res.type, { x: rx + 0.05, y: rowY + 0.06, w: typeW - 0.1, h: rowH - 0.12, fontSize: 6.5, bold: true, color: COLORS.white, fontFace: FONT, align: "center" });
+    rx += typeW;
+
+    // Phase allocation cells (heatmap)
+    res.allocations.forEach(alloc => {
+      const bg  = allocationColor(alloc.percent);
+      const fg  = allocationTextColor(alloc.percent);
+      const txt = alloc.percent > 0 ? `${alloc.percent}%` : "—";
+      slide.addShape("rect", { x: rx, y: rowY, w: phaseW, h: rowH, fill: { color: bg }, line: { color: COLORS.white, width: 0.4 } });
+      slide.addText(txt, { x: rx, y: rowY + 0.04, w: phaseW, h: rowH - 0.08, fontSize: 8, bold: alloc.percent > 0, color: fg, fontFace: FONT, align: "center" });
+      rx += phaseW;
+    });
+  });
+
+  // ── Summary / Total FTE row ──
+  const summaryY = startY + headerH + visResources.length * rowH;
+  if (summaryY + rowH < 7.1) {
+    let sx = tableX;
+    slide.addShape("rect", { x: sx, y: summaryY, w: roleW, h: rowH, fill: { color: COLORS.sapDarkBlue }, line: { color: COLORS.white, width: 0.4 } });
+    slide.addText("Total FTE (est.)", { x: sx + 0.07, y: summaryY + 0.04, w: roleW - 0.14, h: rowH - 0.08, fontSize: 8, bold: true, color: COLORS.white, fontFace: FONT });
+    sx += roleW;
+
+    slide.addShape("rect", { x: sx, y: summaryY, w: wsW + typeW, h: rowH, fill: { color: COLORS.sapDarkBlue }, line: { color: COLORS.white, width: 0.4 } });
+    sx += wsW + typeW;
+
+    phases.forEach((_, pi) => {
+      const total = visResources.reduce((sum, res) => sum + (res.allocations[pi]?.percent ?? 0), 0);
+      const fte   = (total / 100).toFixed(1);
+      const bg    = allocationColor(Math.min(100, total / visResources.length));
+      slide.addShape("rect", { x: sx, y: summaryY, w: phaseW, h: rowH, fill: { color: bg }, line: { color: COLORS.white, width: 0.4 } });
+      slide.addText(`${fte}`, { x: sx, y: summaryY + 0.04, w: phaseW, h: rowH - 0.08, fontSize: 8.5, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT, align: "center" });
+      sx += phaseW;
+    });
+  }
+
+  // ── Legend ──
+  const legendY = 6.75;
+  const legend = [
+    { label: "0%",       color: "F2F2F2", text: "003D73" },
+    { label: "1–25%",    color: "D6E8FA", text: "003D73" },
+    { label: "26–50%",   color: "90C4F5", text: "003D73" },
+    { label: "51–75%",   color: "3D9BE9", text: "FFFFFF" },
+    { label: "76–100%",  color: "0070F2", text: "FFFFFF" },
+  ];
+  slide.addText("Allocation key:", { x: 0.25, y: legendY, w: 1.3, h: 0.26, fontSize: 7.5, color: COLORS.textGray, fontFace: FONT, italic: true });
+  legend.forEach((l, i) => {
+    const lx = 1.6 + i * 1.55;
+    slide.addShape("roundRect", { x: lx, y: legendY + 0.02, w: 1.4, h: 0.22, fill: { color: l.color }, line: { color: COLORS.medGray, width: 0.3 }, rectRadius: 0.04 });
+    slide.addText(l.label, { x: lx, y: legendY + 0.02, w: 1.4, h: 0.22, fontSize: 7, bold: true, color: l.text, fontFace: FONT, align: "center" });
+  });
+
+  if (resources.length > maxRows) {
+    slide.addText(`* Showing first ${maxRows} of ${resources.length} resources`, {
+      x: 0.25, y: summaryY + rowH + 0.05, w: 5, h: 0.2,
+      fontSize: 7, color: COLORS.textGray, fontFace: FONT, italic: true,
+    });
+  }
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
+// SLIDE 9 – Timeline Overview
 // ──────────────────────────────────────────────
 function addTimelineSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
@@ -508,6 +670,7 @@ export async function generatePptx(data: FormData): Promise<void> {
   addRACISlide(pptx, data);
   addDependenciesSlide(pptx, data);
   addAssumptionsSlide(pptx, data);
+  addResourceLoadingSlide(pptx, data);
   addTimelineSlide(pptx, data);
 
   const filename = `${data.projectName.replace(/\s+/g, "_")}_Solution_Architecture.pptx`;
