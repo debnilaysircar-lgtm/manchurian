@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import ProductSearch from "./ProductSearch";
 import type { SAPProduct } from "../data/sapProducts";
-import type { FormData, RACIEntry, SystemEnvironment, ResourceEntry } from "../utils/generatePptx";
+import type { RACIEntry, SystemEnvironment, ResourceEntry } from "../utils/generatePptx";
 import { generatePptx } from "../utils/generatePptx";
 import { generateResourcesFromProducts, PHASE_LABELS } from "../data/resourceMapping";
+import { fetchBestPractices } from "../utils/fetchBestPractices";
+import type { BestPracticesResponse } from "../utils/fetchBestPractices";
 
 const DEFAULT_SYSTEMS: SystemEnvironment[] = [
   { name: "Sandbox", enabled: false, description: "Exploration & PoC testing" },
@@ -84,6 +86,10 @@ export default function SAPSlideGenerator() {
   const [step, setStep] = useState<Step>("basics");
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [fetchingAI, setFetchingAI] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [bestPractices, setBestPractices] = useState<BestPracticesResponse | null>(null);
+  const [includeAI, setIncludeAI] = useState(true);
 
   const [projectName, setProjectName] = useState("SAP Implementation Project");
   const [client, setClient] = useState("");
@@ -108,21 +114,46 @@ export default function SAPSlideGenerator() {
 
   const currentIndex = STEPS.findIndex(s => s.key === step);
 
-  function buildFormData(): FormData {
-    return { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources };
+  async function fetchAIContent() {
+    if (!includeAI || selectedProducts.length === 0) return;
+    setFetchingAI(true);
+    setAiError(null);
+    try {
+      const result = await fetchBestPractices(selectedProducts.map(p => p.name), projectName);
+      setBestPractices(result);
+    } catch (err) {
+      setAiError(String(err));
+    } finally {
+      setFetchingAI(false);
+    }
   }
 
   async function handleGenerate() {
     setGenerating(true);
     setGenerated(false);
     try {
-      await generatePptx(buildFormData());
+      let bp = bestPractices;
+      if (includeAI && !bp && selectedProducts.length > 0) {
+        setFetchingAI(true);
+        try {
+          bp = await fetchBestPractices(selectedProducts.map(p => p.name), projectName);
+          setBestPractices(bp);
+        } catch (err) {
+          setAiError(String(err));
+          bp = null;
+        } finally {
+          setFetchingAI(false);
+        }
+      }
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined };
+      await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
       console.error(err);
       alert("Error generating PPTX. Check the browser console.");
     } finally {
       setGenerating(false);
+      setFetchingAI(false);
     }
   }
 
@@ -488,6 +519,13 @@ export default function SAPSlideGenerator() {
                     {["Title & Overview", "SAP Products", "System Landscape", "Project Scope", "RACI Matrix", "Dependencies", "Assumptions", `Resource Loading (${resources.length} roles)`, "Timeline"].map(s => (
                       <p key={s} className="text-xs text-gray-700">✓ {s}</p>
                     ))}
+                    {includeAI && (
+                      <>
+                        <p className="text-xs text-amber-700 mt-1">✦ Implementation Approach (AI)</p>
+                        <p className="text-xs text-amber-700">✦ Critical Success Factors (AI)</p>
+                        <p className="text-xs text-amber-700">✦ Risk Register (AI)</p>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -523,13 +561,70 @@ export default function SAPSlideGenerator() {
                   </div>
                 )}
 
-                <button onClick={handleGenerate} disabled={generating || selectedProducts.length === 0}
+                {/* AI Best Practices Panel */}
+                <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">✨</span>
+                        <h3 className="font-bold text-amber-900 text-sm">AI-Generated Best Practice Slides</h3>
+                        <span className="text-xs bg-amber-400 text-amber-900 px-2 py-0.5 rounded-full font-semibold">Powered by Claude</span>
+                      </div>
+                      <p className="text-xs text-amber-700">
+                        Adds 3 slides with SAP Activate–aligned implementation guidance, critical success factors, and a risk register — tailored to your selected products.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { setIncludeAI(v => !v); setBestPractices(null); setAiError(null); }}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                        includeAI ? "bg-amber-500 border-amber-500 text-white" : "bg-white border-amber-300 text-amber-700 hover:bg-amber-50"
+                      }`}>
+                      {includeAI ? "✓ Enabled" : "Disabled"}
+                    </button>
+                  </div>
+
+                  {includeAI && (
+                    <div className="mt-3 flex items-center gap-3">
+                      {!bestPractices && !fetchingAI && (
+                        <button onClick={fetchAIContent} disabled={selectedProducts.length === 0}
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50">
+                          ⚡ Pre-fetch AI content now
+                        </button>
+                      )}
+                      {fetchingAI && (
+                        <div className="flex items-center gap-2 text-amber-700 text-xs">
+                          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                          <span>Fetching AI content from Claude (this may take 15–30s)…</span>
+                        </div>
+                      )}
+                      {bestPractices && !fetchingAI && (
+                        <div className="flex items-center gap-2 text-green-700 text-xs">
+                          <span className="text-green-500 text-base">✅</span>
+                          <span className="font-medium">AI content ready — {bestPractices.criticalSuccessFactors.length} CSFs, {bestPractices.riskRegister.length} risks</span>
+                          <button onClick={() => { setBestPractices(null); setAiError(null); fetchAIContent(); }}
+                            className="ml-2 text-amber-600 hover:text-amber-800 underline">Refresh</button>
+                        </div>
+                      )}
+                      {aiError && !fetchingAI && (
+                        <div className="text-red-600 text-xs">
+                          ⚠ AI error: {aiError}. Slides will be skipped.
+                          <button onClick={fetchAIContent} className="ml-2 underline">Retry</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <button onClick={handleGenerate} disabled={generating || fetchingAI || selectedProducts.length === 0}
                   className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg ${
-                    generating || selectedProducts.length === 0
+                    generating || fetchingAI || selectedProducts.length === 0
                       ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                       : "bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white shadow-blue-600/30"
                   }`}>
-                  {generating ? "⏳ Generating PPTX..." : "⬇️ Generate & Download PPTX"}
+                  {fetchingAI ? "✨ Fetching AI content…" : generating ? "⏳ Generating PPTX..." : "⬇️ Generate & Download PPTX"}
                 </button>
 
                 {selectedProducts.length === 0 && (

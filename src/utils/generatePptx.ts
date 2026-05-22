@@ -1,5 +1,6 @@
 import PptxGenJS from "pptxgenjs";
 import type { SAPProduct } from "../data/sapProducts";
+import type { BestPracticesResponse } from "./fetchBestPractices";
 
 export interface SystemEnvironment {
   name: string;
@@ -40,6 +41,7 @@ export interface FormData {
   resources: ResourceEntry[];
   preparedBy: string;
   version: string;
+  bestPractices?: BestPracticesResponse;
 }
 
 // Brand colors
@@ -653,6 +655,182 @@ function addTimelineSlide(pptx: PptxGenJS, data: FormData) {
 }
 
 // ──────────────────────────────────────────────
+// SLIDE 10 – Implementation Approach (AI-generated)
+// ──────────────────────────────────────────────
+function addImplementationApproachSlide(pptx: PptxGenJS, data: FormData) {
+  const bp = data.bestPractices;
+  if (!bp) return;
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "Implementation Approach", bp.implementationApproach.title);
+
+  const phases = bp.implementationApproach.phases;
+  const colCount = Math.min(phases.length, 3);
+  const colW = 9.2 / colCount - 0.12;
+  const startX = 0.25;
+  const phaseColors = [COLORS.teal, COLORS.sapBlue, COLORS.green, COLORS.orange, COLORS.purple, COLORS.sapDarkBlue];
+
+  phases.slice(0, 6).forEach((ph, i) => {
+    const col = i % colCount;
+    const row = Math.floor(i / colCount);
+    const x = startX + col * (colW + 0.12);
+    const y = 1.1 + row * 2.95;
+    const color = phaseColors[i % phaseColors.length];
+
+    if (y + 2.8 > 7.2) return;
+
+    // Phase header bar
+    slide.addShape("roundRect", { x, y, w: colW, h: 0.42, fill: { color }, rectRadius: 0.06 });
+    slide.addText(ph.phase, {
+      x: x + 0.08, y, w: colW - 0.16, h: 0.42,
+      fontSize: 9.5, bold: true, color: COLORS.white, fontFace: FONT, align: "center",
+    });
+
+    // Activity list
+    ph.activities.slice(0, 5).forEach((act, ai) => {
+      const ay = y + 0.48 + ai * 0.44;
+      if (ay + 0.4 > y + 2.8) return;
+      const bg = ai % 2 === 0 ? COLORS.sapLightBlue : COLORS.lightGray;
+      slide.addShape("roundRect", { x, y: ay, w: colW, h: 0.4, fill: { color: bg }, rectRadius: 0.04 });
+      slide.addShape("ellipse", { x: x + 0.08, y: ay + 0.12, w: 0.16, h: 0.16, fill: { color } });
+      slide.addText(act, {
+        x: x + 0.3, y: ay + 0.04, w: colW - 0.38, h: 0.32,
+        fontSize: 7.5, color: COLORS.darkGray, fontFace: FONT,
+      });
+    });
+  });
+
+  // AI badge
+  slide.addShape("roundRect", { x: 8.1, y: 0.95, w: 1.65, h: 0.24, fill: { color: COLORS.accentGold }, rectRadius: 0.06 });
+  slide.addText("AI-Generated Guidance", { x: 8.1, y: 0.95, w: 1.65, h: 0.24, fontSize: 6.5, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT, align: "center" });
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
+// SLIDE 11 – Critical Success Factors (AI-generated)
+// ──────────────────────────────────────────────
+function addCriticalSuccessFactorsSlide(pptx: PptxGenJS, data: FormData) {
+  const bp = data.bestPractices;
+  if (!bp) return;
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "Critical Success Factors", "Key factors for a successful implementation");
+
+  const iconColors = [COLORS.sapBlue, COLORS.green, COLORS.orange, COLORS.purple, COLORS.teal, COLORS.sapDarkBlue, "C0392B"];
+  const csf = bp.criticalSuccessFactors.slice(0, 8);
+  const splitAt = Math.ceil(csf.length / 2);
+
+  csf.forEach((item, idx) => {
+    const col = idx < splitAt ? 0 : 1;
+    const rowIdx = idx < splitAt ? idx : idx - splitAt;
+    const x = col === 0 ? 0.28 : 5.05;
+    const y = 1.1 + rowIdx * 0.9;
+    if (y + 0.82 > 7.0) return;
+    const color = iconColors[idx % iconColors.length];
+    slide.addShape("roundRect", { x, y, w: 4.45, h: 0.82, fill: { color: COLORS.lightGray }, line: { color: COLORS.medGray, width: 0.4 }, rectRadius: 0.08 });
+    slide.addShape("roundRect", { x: x + 0.08, y: y + 0.08, w: 0.34, h: 0.66, fill: { color }, rectRadius: 0.04 });
+    slide.addText(`${idx + 1}`, { x: x + 0.08, y: y + 0.08, w: 0.34, h: 0.66, fontSize: 11, bold: true, color: COLORS.white, fontFace: FONT, align: "center" });
+    slide.addText(item.factor, { x: x + 0.5, y: y + 0.07, w: 3.87, h: 0.25, fontSize: 9.5, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT });
+    slide.addText(item.description, { x: x + 0.5, y: y + 0.33, w: 3.87, h: 0.44, fontSize: 8, color: COLORS.textGray, fontFace: FONT });
+  });
+
+  // Key recommendations strip
+  if (bp.keyRecommendations.length > 0) {
+    const recY = 6.6;
+    slide.addShape("rect", { x: 0.25, y: recY, w: 9.3, h: 0.44, fill: { color: COLORS.sapLightBlue }, line: { color: COLORS.sapBlue, width: 0.4 } });
+    slide.addText("Key Recommendations:  " + bp.keyRecommendations.slice(0, 3).join("   •   "), {
+      x: 0.35, y: recY + 0.02, w: 9.1, h: 0.4,
+      fontSize: 7.5, color: COLORS.sapDarkBlue, fontFace: FONT, italic: true,
+    });
+  }
+
+  // AI badge
+  slide.addShape("roundRect", { x: 8.1, y: 0.95, w: 1.65, h: 0.24, fill: { color: COLORS.accentGold }, rectRadius: 0.06 });
+  slide.addText("AI-Generated Guidance", { x: 8.1, y: 0.95, w: 1.65, h: 0.24, fontSize: 6.5, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT, align: "center" });
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
+// SLIDE 12 – Risk Register (AI-generated)
+// ──────────────────────────────────────────────
+function addRiskRegisterSlide(pptx: PptxGenJS, data: FormData) {
+  const bp = data.bestPractices;
+  if (!bp) return;
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "Risk Register", "Identified Risks & Mitigation Strategies");
+
+  const impactColors: Record<string, string> = { High: "C0392B", Medium: COLORS.orange, Low: COLORS.green };
+  const probColors:   Record<string, string> = { High: "C0392B", Medium: COLORS.orange, Low: COLORS.teal };
+
+  // Table headers
+  const colWidths = [3.4, 0.9, 1.0, 4.0];
+  const headers = ["Risk", "Impact", "Probability", "Mitigation Strategy"];
+  const tableX = 0.25;
+  const headerY = 1.05;
+  let hx = tableX;
+
+  headers.forEach((h, i) => {
+    slide.addShape("rect", { x: hx, y: headerY, w: colWidths[i], h: 0.38, fill: { color: COLORS.sapDarkBlue }, line: { color: COLORS.white, width: 0.4 } });
+    slide.addText(h, { x: hx + 0.05, y: headerY, w: colWidths[i] - 0.1, h: 0.38, fontSize: 9, bold: true, color: COLORS.white, fontFace: FONT, align: i === 0 ? "left" : "center" });
+    hx += colWidths[i];
+  });
+
+  const risks = bp.riskRegister.slice(0, 9);
+  risks.forEach((risk, i) => {
+    const rowY = headerY + 0.38 + i * 0.6;
+    if (rowY + 0.56 > 7.1) return;
+    const rowBg = i % 2 === 0 ? COLORS.rowAlt : COLORS.white;
+    let rx = tableX;
+
+    // Risk description
+    slide.addShape("rect", { x: rx, y: rowY, w: colWidths[0], h: 0.56, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.3 } });
+    slide.addText(risk.risk, { x: rx + 0.08, y: rowY + 0.06, w: colWidths[0] - 0.16, h: 0.44, fontSize: 8.5, color: COLORS.darkGray, fontFace: FONT });
+    rx += colWidths[0];
+
+    // Impact badge
+    slide.addShape("rect", { x: rx, y: rowY, w: colWidths[1], h: 0.56, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.3 } });
+    const impColor = impactColors[risk.impact] ?? COLORS.textGray;
+    slide.addShape("roundRect", { x: rx + 0.08, y: rowY + 0.1, w: colWidths[1] - 0.16, h: 0.36, fill: { color: impColor }, rectRadius: 0.04 });
+    slide.addText(risk.impact, { x: rx + 0.08, y: rowY + 0.1, w: colWidths[1] - 0.16, h: 0.36, fontSize: 8, bold: true, color: COLORS.white, fontFace: FONT, align: "center" });
+    rx += colWidths[1];
+
+    // Probability badge
+    slide.addShape("rect", { x: rx, y: rowY, w: colWidths[2], h: 0.56, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.3 } });
+    const probColor = probColors[risk.probability] ?? COLORS.textGray;
+    slide.addShape("roundRect", { x: rx + 0.08, y: rowY + 0.1, w: colWidths[2] - 0.16, h: 0.36, fill: { color: probColor }, rectRadius: 0.04 });
+    slide.addText(risk.probability, { x: rx + 0.08, y: rowY + 0.1, w: colWidths[2] - 0.16, h: 0.36, fontSize: 8, bold: true, color: COLORS.white, fontFace: FONT, align: "center" });
+    rx += colWidths[2];
+
+    // Mitigation
+    slide.addShape("rect", { x: rx, y: rowY, w: colWidths[3], h: 0.56, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.3 } });
+    slide.addText(risk.mitigation, { x: rx + 0.08, y: rowY + 0.06, w: colWidths[3] - 0.16, h: 0.44, fontSize: 8, color: COLORS.textGray, fontFace: FONT });
+    rx += colWidths[3];
+  });
+
+  // Integration best practices strip at bottom
+  if (bp.integrationBestPractices.length > 0) {
+    const bpY = 6.62;
+    slide.addShape("rect", { x: 0.25, y: bpY, w: 9.3, h: 0.48, fill: { color: COLORS.sapLightBlue }, line: { color: COLORS.sapBlue, width: 0.4 } });
+    slide.addText("Integration Best Practices:  " + bp.integrationBestPractices.slice(0, 2).join("   •   "), {
+      x: 0.35, y: bpY + 0.04, w: 9.1, h: 0.4,
+      fontSize: 7.5, color: COLORS.sapDarkBlue, fontFace: FONT, italic: true,
+    });
+  }
+
+  // AI badge
+  slide.addShape("roundRect", { x: 8.1, y: 0.95, w: 1.65, h: 0.24, fill: { color: COLORS.accentGold }, rectRadius: 0.06 });
+  slide.addText("AI-Generated Guidance", { x: 8.1, y: 0.95, w: 1.65, h: 0.24, fontSize: 6.5, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT, align: "center" });
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
 // Main export function
 // ──────────────────────────────────────────────
 export async function generatePptx(data: FormData): Promise<void> {
@@ -672,6 +850,13 @@ export async function generatePptx(data: FormData): Promise<void> {
   addAssumptionsSlide(pptx, data);
   addResourceLoadingSlide(pptx, data);
   addTimelineSlide(pptx, data);
+
+  // AI-generated best practices slides (only if data available)
+  if (data.bestPractices) {
+    addImplementationApproachSlide(pptx, data);
+    addCriticalSuccessFactorsSlide(pptx, data);
+    addRiskRegisterSlide(pptx, data);
+  }
 
   const filename = `${data.projectName.replace(/\s+/g, "_")}_Solution_Architecture.pptx`;
   await pptx.writeFile({ fileName: filename });
