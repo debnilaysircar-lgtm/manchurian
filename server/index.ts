@@ -282,6 +282,92 @@ Rules:
   }
 });
 
+// ── /api/auto-resources ────────────────────────────────────────────────────
+interface AutoResourcesRequest {
+  products: string[];
+  projectName?: string;
+  clientContext?: string;
+  phases?: string[];
+}
+
+app.post("/api/auto-resources", async (req, res) => {
+  const { products, projectName, clientContext, phases } = req.body as AutoResourcesRequest;
+
+  if (!products || products.length === 0) {
+    return res.status(400).json({ error: "products array is required" });
+  }
+
+  const phaseList = (phases && phases.length > 0)
+    ? phases
+    : ["Prep", "Blueprint", "Realization", "Testing", "Cutover", "Hypercare"];
+
+  const context = clientContext?.trim() ? `\n\nClient context: ${clientContext}` : "";
+
+  const prompt = `You are a senior SAP staffing and resource planning consultant.
+
+Project: ${projectName || "SAP Implementation"}
+SAP Products in scope: ${products.join(", ")}${context}
+
+Project phases (in order): ${phaseList.join(", ")}
+
+Generate a realistic FTE resource plan. Return ONLY raw JSON — no markdown, no code fences.
+
+Return an array of resource entries:
+[
+  {
+    "role": "exact job title (e.g. S/4HANA Finance Lead Consultant)",
+    "workstream": "short workstream name (e.g. Finance, Logistics, Technical, HCM)",
+    "type": "Consultant | Client | Both",
+    "allocations": [
+      { "phase": "${phaseList[0]}", "percent": 80 },
+      { "phase": "${phaseList[1]}", "percent": 100 },
+      ...one entry per phase in the same order as the phases array...
+    ]
+  }
+]
+
+Rules:
+- Always include these core roles: Project Manager (Both, 100% all phases), SAP Basis Administrator (Consultant), Change Management Lead (Client), Testing/QA Lead (Consultant), Data Migration Lead (Consultant)
+- Add product-specific functional consultants and architects for EACH selected product — at least 1 lead architect and 1–2 functional consultants per product area
+- Add integration/technical roles if multiple products are selected
+- type "Consultant" = delivery partner staff; "Client" = client-side resources; "Both" = shared/PM roles
+- Allocation percents (0–100) must reflect realistic phasing:
+  - Architects: peak in Blueprint and Realization
+  - Functional consultants: peak in Blueprint and Realization, high in Testing
+  - Developers: low in Blueprint, peak in Realization
+  - Basis: high in Prep and Cutover
+  - Data migration: peak in Realization and Cutover
+  - Testing: peak in Testing phase
+  - Change management: high throughout, peak at Cutover
+  - Client Business Owners: high in Blueprint and Testing
+- Include 10–18 roles total depending on the number of products
+- Each allocations array must have exactly ${phaseList.length} entries in phase order
+- Return ONLY a JSON array`;
+
+  try {
+    const message = await client.messages.create({
+      model: "claude-opus-4-7",
+      max_tokens: 5000,
+      thinking: { type: "adaptive" },
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const textBlock = message.content.find(b => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return res.status(500).json({ error: "No text response from AI" });
+    }
+
+    const raw = textBlock.text.trim();
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    const parsed = JSON.parse(start >= 0 ? raw.slice(start, end + 1) : raw);
+    res.json(parsed);
+  } catch (err) {
+    console.error("Error calling Claude API:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Best-practices API running on http://localhost:${PORT}`);

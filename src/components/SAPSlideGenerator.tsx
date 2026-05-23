@@ -10,6 +10,7 @@ import type { BestPracticesResponse } from "../utils/fetchBestPractices";
 import { autoGenerate } from "../utils/autoGenerate";
 import { generateSow } from "../utils/generateSow";
 import { fetchServiceCatalog } from "../utils/fetchServiceCatalog";
+import { fetchAutoResources } from "../utils/fetchAutoResources";
 import type { ServiceCatalogEntry, ServiceCategory, ServiceTier } from "../types/serviceCatalog";
 import type { CommercialShape } from "../utils/generatePptx";
 import type { OutputConfig } from "../types/outputConfig";
@@ -166,6 +167,8 @@ export default function SAPSlideGenerator() {
   const [serviceCatalog, setServiceCatalog] = useState<ServiceCatalogEntry[]>([]);
   const [fetchingCatalog, setFetchingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [fetchingResources, setFetchingResources] = useState(false);
+  const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [commercialShape, setCommercialShape] = useState<CommercialShape>({
     engagementModel: "Fixed Price",
     currency: "USD",
@@ -265,6 +268,24 @@ export default function SAPSlideGenerator() {
       setCatalogError(String(err));
     } finally {
       setFetchingCatalog(false);
+    }
+  }
+
+  async function handleAIResources() {
+    if (selectedProducts.length === 0) return;
+    setFetchingResources(true);
+    setResourcesError(null);
+    try {
+      const result = await fetchAutoResources(
+        selectedProducts.map(p => p.name),
+        projectName,
+        clientContext,
+      );
+      setResources(result);
+    } catch (err) {
+      setResourcesError(String(err));
+    } finally {
+      setFetchingResources(false);
     }
   }
 
@@ -624,27 +645,67 @@ export default function SAPSlideGenerator() {
             {/* ── RESOURCES ── */}
             {step === "resources" && (
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm text-gray-600">
-                    Roles are auto-suggested from your selected SAP products. Edit allocations (0–100%) per phase — the slide renders a colour-coded heatmap.
-                  </p>
-                  <button onClick={regenerateResources}
-                    className="ml-4 flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                    ↺ Re-generate from products
-                  </button>
+                {/* AI generate banner */}
+                <div className="mb-4 flex items-center gap-3 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <span className="text-xl flex-shrink-0">✨</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-amber-900">AI-suggested resource plan from SAP products</p>
+                    {resourcesError && <p className="text-xs text-red-600 mt-0.5 truncate">⚠ {resourcesError}</p>}
+                    {!resourcesError && (
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Claude generates FTE roles and phase allocations tailored to {selectedProducts.length > 0 ? selectedProducts.map(p => p.name).join(", ") : "your selected products"}.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button
+                      onClick={handleAIResources}
+                      disabled={fetchingResources || selectedProducts.length === 0}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                        selectedProducts.length === 0 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : fetchingResources ? "bg-amber-200 text-amber-700 cursor-wait"
+                        : "bg-amber-500 hover:bg-amber-600 text-white"
+                      }`}
+                    >
+                      {fetchingResources ? (
+                        <>
+                          <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                          Generating…
+                        </>
+                      ) : "⚡ AI Suggest"}
+                    </button>
+                    <button
+                      onClick={regenerateResources}
+                      disabled={selectedProducts.length === 0}
+                      className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ↺ Template
+                    </button>
+                  </div>
                 </div>
 
-                {resources.length === 0 && (
+                {resources.length === 0 && !fetchingResources && (
                   <div className="text-center py-8 text-gray-400">
                     <p className="text-4xl mb-2">📊</p>
-                    <p className="text-sm">No resources yet.</p>
-                    <button onClick={regenerateResources} className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
-                      Auto-generate from selected products
-                    </button>
+                    <p className="text-sm">No resources yet — use AI Suggest or Template to populate.</p>
                   </div>
                 )}
 
-                {resources.length > 0 && (
+                {fetchingResources && (
+                  <div className="text-center py-10 text-amber-600">
+                    <svg className="animate-spin w-8 h-8 mx-auto mb-3" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    <p className="text-sm font-medium">Claude is building your resource plan…</p>
+                    <p className="text-xs text-amber-500 mt-1">Analysing {selectedProducts.map(p => p.name).join(", ")}</p>
+                  </div>
+                )}
+
+                {resources.length > 0 && !fetchingResources && (
                   <>
                     {/* Live heatmap preview */}
                     <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm mb-4">
