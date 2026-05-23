@@ -4,6 +4,7 @@ import type { BestPracticesResponse } from "./fetchBestPractices";
 import type { OutputConfig } from "../types/outputConfig";
 import { THEME_PALETTES, DENSITY_SETTINGS } from "../types/outputConfig";
 import type { AMSData } from "../types/amsData";
+import type { ServiceCatalogEntry } from "../types/serviceCatalog";
 
 export interface SystemEnvironment {
   name: string;
@@ -48,6 +49,22 @@ export interface FormData {
   outputConfig?: OutputConfig;
   amsData?: AMSData;
   clientContext?: string;
+  serviceCatalog?: ServiceCatalogEntry[];
+  commercialShape?: CommercialShape;
+}
+
+export interface CommercialShape {
+  engagementModel: string;
+  currency: string;
+  totalValue: string;
+  paymentTerms: string;
+  paymentSchedule: string;
+  expensePolicy: string;
+  warrantyPeriod: string;
+  governingLaw: string;
+  noticeperiod: string;
+  penaltyClauses: string;
+  additionalTerms: string;
 }
 
 // Derived at generation time from OutputConfig
@@ -864,6 +881,146 @@ function addRiskRegisterSlide(pptx: PptxGenJS, data: FormData) {
 }
 
 // ──────────────────────────────────────────────
+// Service Catalog Slide
+// ──────────────────────────────────────────────
+function addServiceCatalogSlide(pptx: PptxGenJS, data: FormData) {
+  const catalog = data.serviceCatalog?.filter(e => e.included);
+  if (!catalog || catalog.length === 0) return;
+
+  const tierColors: Record<string, string> = {
+    Standard: COLORS.sapBlue,
+    Enhanced: COLORS.teal,
+    Premium:  COLORS.accentGold,
+  };
+  const tierTextColors: Record<string, string> = {
+    Standard: COLORS.white,
+    Enhanced: COLORS.white,
+    Premium:  COLORS.sapDarkBlue,
+  };
+
+  // Split into chunks of ~16 rows per slide
+  const chunkSize = 14;
+  const chunks: typeof catalog[] = [];
+  for (let i = 0; i < catalog.length; i += chunkSize) {
+    chunks.push(catalog.slice(i, i + chunkSize));
+  }
+
+  chunks.forEach((chunk, pageIdx) => {
+    const slide = pptx.addSlide();
+    slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+    addSlideHeader(slide, "AMS Service Catalog", chunks.length > 1 ? `Service Overview (Page ${pageIdx + 1} of ${chunks.length})` : "Service Overview");
+
+    const tableX = 0.25;
+    const headerH = 0.36;
+    const rowH = DENSITY.rowHeight;
+    const startY = 1.05;
+    const colWidths = [1.8, 2.5, 1.6, 1.1, 1.2, 1.55];
+    const headers = ["Category", "Service Name", "SLA Target", "Tier", "Frequency", "Deliverable"];
+    let hx = tableX;
+
+    headers.forEach((h, i) => {
+      const isFirst = i === 0;
+      slide.addShape("rect", {
+        x: hx, y: startY, w: colWidths[i], h: headerH,
+        fill: { color: isFirst ? COLORS.sapDarkBlue : COLORS.sapBlue },
+        line: { color: COLORS.white, width: 0.4 },
+      });
+      slide.addText(h, {
+        x: hx + 0.04, y: startY, w: colWidths[i] - 0.08, h: headerH,
+        fontSize: 7.5, bold: true, color: COLORS.white, fontFace: FONT, align: "center",
+      });
+      hx += colWidths[i];
+    });
+
+    chunk.forEach((entry, ri) => {
+      const rowY = startY + headerH + ri * rowH;
+      const rowBg = ri % 2 === 0 ? COLORS.rowAlt : COLORS.white;
+      let rx = tableX;
+
+      const cells = [entry.category, entry.serviceName, entry.slaTarget, entry.tier, entry.frequency, entry.deliverable];
+      cells.forEach((cell, ci) => {
+        if (ci === 3) {
+          // Tier badge
+          const tc = tierColors[entry.tier] ?? COLORS.sapBlue;
+          const tfc = tierTextColors[entry.tier] ?? COLORS.white;
+          slide.addShape("rect", { x: rx, y: rowY, w: colWidths[ci], h: rowH, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.2 } });
+          slide.addShape("roundRect", { x: rx + 0.08, y: rowY + 0.04, w: colWidths[ci] - 0.16, h: rowH - 0.08, fill: { color: tc }, rectRadius: 0.03 });
+          slide.addText(cell, { x: rx + 0.08, y: rowY + 0.04, w: colWidths[ci] - 0.16, h: rowH - 0.08, fontSize: 6.5, bold: true, color: tfc, fontFace: FONT, align: "center" });
+        } else {
+          slide.addShape("rect", { x: rx, y: rowY, w: colWidths[ci], h: rowH, fill: { color: rowBg }, line: { color: COLORS.medGray, width: 0.2 } });
+          slide.addText(cell, { x: rx + 0.05, y: rowY + 0.03, w: colWidths[ci] - 0.1, h: rowH - 0.06, fontSize: 7, color: COLORS.darkGray, fontFace: FONT });
+        }
+        rx += colWidths[ci];
+      });
+    });
+
+    // Legend
+    const legendY = 6.78;
+    slide.addText("Tier:", { x: 0.25, y: legendY, w: 0.5, h: 0.22, fontSize: 7, color: COLORS.textGray, fontFace: FONT, italic: true });
+    [["Standard", COLORS.sapBlue, COLORS.white], ["Enhanced", COLORS.teal, COLORS.white], ["Premium", COLORS.accentGold, COLORS.sapDarkBlue]].forEach(([label, bg, fg], i) => {
+      const lx = 0.75 + i * 1.3;
+      slide.addShape("roundRect", { x: lx, y: legendY + 0.01, w: 1.2, h: 0.2, fill: { color: bg }, rectRadius: 0.03 });
+      slide.addText(label, { x: lx, y: legendY + 0.01, w: 1.2, h: 0.2, fontSize: 6.5, bold: true, color: fg, fontFace: FONT, align: "center" });
+    });
+
+    addSlideFooter(slide, data);
+  });
+}
+
+// ──────────────────────────────────────────────
+// Commercial Shape Slide
+// ──────────────────────────────────────────────
+function addCommercialShapeSlide(pptx: PptxGenJS, data: FormData) {
+  const c = data.commercialShape;
+  if (!c) return;
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "Commercial Shape", "Engagement Model & Commercial Terms");
+
+  const rows: Array<[string, string]> = [
+    ["Engagement Model",  c.engagementModel || "—"],
+    ["Currency",          c.currency || "—"],
+    ["Total Contract Value", c.totalValue || "—"],
+    ["Payment Terms",     c.paymentTerms || "—"],
+    ["Payment Schedule",  c.paymentSchedule || "—"],
+    ["Expense Policy",    c.expensePolicy || "—"],
+    ["Warranty Period",   c.warrantyPeriod || "—"],
+    ["Governing Law",     c.governingLaw || "—"],
+    ["Notice Period",     c.noticeperiod || "—"],
+    ["Penalty Clauses",   c.penaltyClauses || "—"],
+  ];
+
+  const tableX = 0.25;
+  const labelW = 3.5;
+  const valueW = 6.0;
+  const rH = 0.42;
+
+  rows.forEach(([label, value], i) => {
+    const rowY = 1.1 + i * (rH + 0.04);
+    if (rowY + rH > 7.0) return;
+    const bg = i % 2 === 0 ? COLORS.rowAlt : COLORS.white;
+
+    slide.addShape("rect", { x: tableX, y: rowY, w: labelW, h: rH, fill: { color: COLORS.sapDarkBlue }, line: { color: COLORS.white, width: 0.4 } });
+    slide.addText(label, { x: tableX + 0.1, y: rowY, w: labelW - 0.2, h: rH, fontSize: 9, bold: true, color: COLORS.white, fontFace: FONT });
+
+    slide.addShape("rect", { x: tableX + labelW, y: rowY, w: valueW, h: rH, fill: { color: bg }, line: { color: COLORS.medGray, width: 0.3 } });
+    slide.addText(value, { x: tableX + labelW + 0.12, y: rowY, w: valueW - 0.24, h: rH, fontSize: 9.5, color: COLORS.darkGray, fontFace: FONT });
+  });
+
+  if (c.additionalTerms) {
+    const notesY = 1.1 + rows.length * (rH + 0.04) + 0.1;
+    if (notesY + 0.6 < 7.1) {
+      slide.addShape("roundRect", { x: tableX, y: notesY, w: labelW + valueW, h: 0.6, fill: { color: COLORS.sapLightBlue }, line: { color: COLORS.sapBlue, width: 0.4 }, rectRadius: 0.06 });
+      slide.addText("Additional Terms:", { x: tableX + 0.12, y: notesY + 0.04, w: 2, h: 0.22, fontSize: 8, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT });
+      slide.addText(c.additionalTerms, { x: tableX + 0.12, y: notesY + 0.26, w: labelW + valueW - 0.24, h: 0.3, fontSize: 8.5, color: COLORS.darkGray, fontFace: FONT });
+    }
+  }
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
 // Client Context Slide (verbatim pass-through)
 // ──────────────────────────────────────────────
 function addClientContextSlide(pptx: PptxGenJS, data: FormData) {
@@ -1070,7 +1227,9 @@ export async function generatePptx(data: FormData): Promise<void> {
   if (!s || s.assumptions)  addAssumptionsSlide(pptx, data);
   if (!s || s.resources)    addResourceLoadingSlide(pptx, data);
   if (!s || s.timeline)     addTimelineSlide(pptx, data);
-  if (data.amsData && (!s || s.ams)) addAMSSlide(pptx, data);
+  if (data.amsData && (!s || s.ams))                        addAMSSlide(pptx, data);
+  if (data.serviceCatalog?.length && (!s || s.serviceCatalog)) addServiceCatalogSlide(pptx, data);
+  if (data.commercialShape && (!s || s.commercial))          addCommercialShapeSlide(pptx, data);
 
   if (data.bestPractices) {
     if (!s || s.aiApproach) addImplementationApproachSlide(pptx, data);

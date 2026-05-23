@@ -212,6 +212,76 @@ Rules:
   }
 });
 
+// ── /api/service-catalog ───────────────────────────────────────────────────
+interface ServiceCatalogRequest {
+  products: string[];
+  projectName?: string;
+  clientContext?: string;
+}
+
+app.post("/api/service-catalog", async (req, res) => {
+  const { products, projectName, clientContext } = req.body as ServiceCatalogRequest;
+
+  if (!products || products.length === 0) {
+    return res.status(400).json({ error: "products array is required" });
+  }
+
+  const context = clientContext?.trim() ? `\n\nClient context: ${clientContext}` : "";
+
+  const prompt = `You are a senior SAP AMS (Application Management Services) consultant.
+Project: ${projectName || "SAP AMS Engagement"}
+SAP Products: ${products.join(", ")}${context}
+
+Generate a comprehensive service catalog tailored to these specific SAP products. Return ONLY raw JSON, no markdown.
+
+Return an array of service catalog entries:
+[
+  {
+    "id": "unique-kebab-case-id",
+    "category": "one of: Incident Management | Change Management | Problem Management | Release Management | Monitoring & Alerting | Performance Management | Security & Compliance | User Administration | Data Management | Reporting & Analytics | Integration Support | Training & Knowledge Transfer | Continuous Improvement",
+    "serviceName": "specific service name referencing the SAP product where relevant",
+    "description": "one-sentence description of what this service covers",
+    "included": true,
+    "tier": "Standard | Enhanced | Premium",
+    "slaTarget": "e.g. 99.9% uptime / < 4hr response",
+    "deliverable": "tangible output e.g. Monthly health report / Incident ticket closure",
+    "frequency": "e.g. On-demand | Daily | Weekly | Monthly | Quarterly"
+  }
+]
+
+Rules:
+- Generate 16–22 entries covering all major AMS service categories
+- Each product should have at least 1–2 product-specific services
+- Vary tiers: ~50% Standard, ~30% Enhanced, ~20% Premium
+- Be specific to the SAP products — mention actual module names (FI, CO, SD, MM, etc.)
+- slaTarget must be concise (under 40 chars)
+- Return ONLY a JSON array, no wrapper object`;
+
+  try {
+    const message = await client.messages.create({
+      model: "claude-opus-4-7",
+      max_tokens: 4000,
+      thinking: { type: "adaptive" },
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const textBlock = message.content.find(b => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return res.status(500).json({ error: "No text response from AI" });
+    }
+
+    const raw = textBlock.text.trim();
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    const jsonStr = start >= 0 ? raw.slice(start, end + 1) : raw;
+    const parsed = JSON.parse(jsonStr);
+    res.json(parsed);
+  } catch (err) {
+    console.error("Error calling Claude API:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Best-practices API running on http://localhost:${PORT}`);

@@ -16,6 +16,8 @@ export interface SlideToggles {
   timeline: boolean;
   ams: boolean;
   clientContext: boolean;
+  serviceCatalog: boolean;
+  commercial: boolean;
   aiApproach: boolean;
   aiCSF: boolean;
   aiRisks: boolean;
@@ -50,6 +52,8 @@ export const DEFAULT_CONFIG: OutputConfig = {
     timeline: true,
     ams: true,
     clientContext: true,
+    serviceCatalog: true,
+    commercial: true,
     aiApproach: true,
     aiCSF: true,
     aiRisks: true,

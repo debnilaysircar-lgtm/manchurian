@@ -9,6 +9,9 @@ import { fetchBestPractices } from "../utils/fetchBestPractices";
 import type { BestPracticesResponse } from "../utils/fetchBestPractices";
 import { autoGenerate } from "../utils/autoGenerate";
 import { generateSow } from "../utils/generateSow";
+import { fetchServiceCatalog } from "../utils/fetchServiceCatalog";
+import type { ServiceCatalogEntry, ServiceCategory, ServiceTier } from "../types/serviceCatalog";
+import type { CommercialShape } from "../utils/generatePptx";
 import type { OutputConfig } from "../types/outputConfig";
 import { DEFAULT_CONFIG, THEME_PALETTES } from "../types/outputConfig";
 import type { AMSData } from "../types/amsData";
@@ -64,7 +67,7 @@ const DEFAULT_ASSUMPTIONS = [
   "Business sign-off on design documents will be completed within 5 business days",
 ];
 
-type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "review";
+type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "catalog" | "commercial" | "review";
 const STEPS: { key: Step; label: string; icon: string }[] = [
   { key: "basics",       label: "Project Info",  icon: "📁" },
   { key: "products",     label: "SAP Products",  icon: "🔧" },
@@ -75,6 +78,8 @@ const STEPS: { key: Step; label: string; icon: string }[] = [
   { key: "assumptions",  label: "Assumptions",    icon: "💡" },
   { key: "resources",    label: "Resources",      icon: "📊" },
   { key: "ams",          label: "AMS",            icon: "🛎️" },
+  { key: "catalog",      label: "Catalog",        icon: "📂" },
+  { key: "commercial",   label: "Commercial",     icon: "💰" },
   { key: "review",       label: "Generate",       icon: "⬇️" },
 ];
 
@@ -158,6 +163,22 @@ export default function SAPSlideGenerator() {
   const [autoGenError, setAutoGenError] = useState<string | null>(null);
   const [downloadingSow, setDownloadingSow] = useState(false);
   const [generatedSow, setGeneratedSow] = useState(false);
+  const [serviceCatalog, setServiceCatalog] = useState<ServiceCatalogEntry[]>([]);
+  const [fetchingCatalog, setFetchingCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [commercialShape, setCommercialShape] = useState<CommercialShape>({
+    engagementModel: "Fixed Price",
+    currency: "USD",
+    totalValue: "",
+    paymentTerms: "Net 30",
+    paymentSchedule: "30% mobilisation, 40% delivery, 30% go-live",
+    expensePolicy: "Reasonable travel and subsistence at cost, pre-approved",
+    warrantyPeriod: "30 days post go-live for severity 1 defects",
+    governingLaw: "",
+    noticeperiod: "30 days written notice",
+    penaltyClauses: "",
+    additionalTerms: "",
+  });
 
   // Auto-generate resources when entering the resources step
   useEffect(() => {
@@ -199,7 +220,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -233,11 +254,25 @@ export default function SAPSlideGenerator() {
     }
   }
 
+  async function handleFetchCatalog() {
+    if (selectedProducts.length === 0) return;
+    setFetchingCatalog(true);
+    setCatalogError(null);
+    try {
+      const result = await fetchServiceCatalog(selectedProducts.map(p => p.name), projectName, clientContext);
+      setServiceCatalog(result);
+    } catch (err) {
+      setCatalogError(String(err));
+    } finally {
+      setFetchingCatalog(false);
+    }
+  }
+
   async function handleDownloadSow() {
     setDownloadingSow(true);
     setGeneratedSow(false);
     try {
-      await generateSow({ projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, amsData, clientContext, bestPractices: bestPractices ?? undefined, outputConfig });
+      await generateSow({ projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, amsData, clientContext, bestPractices: bestPractices ?? undefined, outputConfig, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape });
       setGeneratedSow(true);
     } catch (err) {
       console.error(err);
@@ -940,6 +975,289 @@ export default function SAPSlideGenerator() {
                       <div key={k} className="bg-white rounded-lg px-3 py-1.5 border border-blue-100 text-center min-w-[80px]">
                         <div className="text-gray-400 text-[10px]">{k}</div>
                         <div className="font-bold text-blue-900">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── SERVICE CATALOG ── */}
+            {step === "catalog" && (
+              <div className="space-y-4">
+                {/* Fetch panel */}
+                <div className="bg-gradient-to-r from-teal-50 to-blue-50 border border-teal-200 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">📂</span>
+                        <h3 className="font-bold text-teal-900 text-sm">AI-Generated AMS Service Catalog</h3>
+                        <span className="text-xs bg-teal-500 text-white px-2 py-0.5 rounded-full font-semibold">Claude</span>
+                      </div>
+                      <p className="text-xs text-teal-700">
+                        Generates a service catalog tailored to your SAP products. Edit any field inline after generation.
+                      </p>
+                      {catalogError && <p className="text-xs text-red-600 mt-1">⚠ {catalogError}</p>}
+                    </div>
+                    <button onClick={handleFetchCatalog} disabled={fetchingCatalog || selectedProducts.length === 0}
+                      className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
+                        selectedProducts.length === 0 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : fetchingCatalog ? "bg-teal-200 text-teal-700 cursor-wait"
+                        : "bg-teal-600 hover:bg-teal-700 text-white"
+                      }`}>
+                      {fetchingCatalog ? (
+                        <>
+                          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                          Generating…
+                        </>
+                      ) : serviceCatalog.length > 0 ? "↺ Regenerate" : "⚡ Generate Catalog"}
+                    </button>
+                  </div>
+                </div>
+
+                {serviceCatalog.length === 0 && !fetchingCatalog && (
+                  <div className="text-center py-10 text-gray-400">
+                    <p className="text-4xl mb-2">📂</p>
+                    <p className="text-sm">Click "Generate Catalog" to build a product-specific AMS service catalog using AI.</p>
+                  </div>
+                )}
+
+                {serviceCatalog.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-500">{serviceCatalog.filter(e => e.included).length} / {serviceCatalog.length} services enabled — toggle to include/exclude from output</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => setServiceCatalog(c => c.map(e => ({ ...e, included: true })))}
+                          className="text-xs text-teal-600 hover:text-teal-800 font-medium">Enable all</button>
+                        <span className="text-gray-300">|</span>
+                        <button onClick={() => setServiceCatalog(c => c.map(e => ({ ...e, included: false })))}
+                          className="text-xs text-gray-500 hover:text-gray-700 font-medium">Disable all</button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            <th className="bg-teal-800 text-white px-2 py-2 w-8 text-center">✓</th>
+                            <th className="bg-teal-800 text-white px-2 py-2 text-left min-w-[140px]">Category</th>
+                            <th className="bg-teal-700 text-white px-2 py-2 text-left min-w-[200px]">Service Name</th>
+                            <th className="bg-teal-700 text-white px-2 py-2 text-left min-w-[200px]">Description</th>
+                            <th className="bg-teal-700 text-white px-2 py-2 text-center w-24">Tier</th>
+                            <th className="bg-teal-700 text-white px-2 py-2 text-center w-28">SLA Target</th>
+                            <th className="bg-teal-700 text-white px-2 py-2 text-center w-24">Frequency</th>
+                            <th className="bg-teal-700 text-white px-2 py-2 text-left min-w-[160px]">Deliverable</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {serviceCatalog.map((entry, idx) => (
+                            <tr key={entry.id} className={`border-b border-gray-100 ${!entry.included ? "opacity-40" : ""} ${idx % 2 === 0 ? "bg-gray-50" : "bg-white"}`}>
+                              <td className="px-2 py-1.5 text-center">
+                                <input type="checkbox" checked={entry.included}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, included: e.target.checked } : x))}
+                                  className="w-3.5 h-3.5 accent-teal-600" />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <select value={entry.category}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, category: e.target.value as ServiceCategory } : x))}
+                                  className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs bg-white focus:ring-1 focus:ring-teal-400">
+                                  {["Incident Management","Change Management","Problem Management","Release Management","Monitoring & Alerting","Performance Management","Security & Compliance","User Administration","Data Management","Reporting & Analytics","Integration Support","Training & Knowledge Transfer","Continuous Improvement"].map(c => <option key={c}>{c}</option>)}
+                                </select>
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input value={entry.serviceName}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, serviceName: e.target.value } : x))}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-teal-400" />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input value={entry.description}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-teal-400" />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <select value={entry.tier}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, tier: e.target.value as ServiceTier } : x))}
+                                  className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs bg-white focus:ring-1 focus:ring-teal-400">
+                                  <option>Standard</option><option>Enhanced</option><option>Premium</option>
+                                </select>
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input value={entry.slaTarget}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, slaTarget: e.target.value } : x))}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-teal-400" />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input value={entry.frequency}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, frequency: e.target.value } : x))}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-teal-400" />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input value={entry.deliverable}
+                                  onChange={e => setServiceCatalog(c => c.map((x, i) => i === idx ? { ...x, deliverable: e.target.value } : x))}
+                                  className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-teal-400" />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <button onClick={() => setServiceCatalog(c => [...c, {
+                      id: `svc-custom-${Date.now()}`, category: "Incident Management",
+                      serviceName: "", description: "", included: true, tier: "Standard",
+                      slaTarget: "", deliverable: "", frequency: "On-demand",
+                    }])}
+                      className="flex items-center gap-2 text-teal-600 text-sm font-medium hover:text-teal-800">
+                      <span className="w-6 h-6 rounded-full bg-teal-100 flex items-center justify-center">+</span>Add service row
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── COMMERCIAL SHAPE ── */}
+            {step === "commercial" && (
+              <div className="space-y-5">
+                <p className="text-sm text-gray-600">Enter commercial terms for the engagement. These populate a dedicated Commercial Shape slide and the SoW Word document.</p>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Engagement Model */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Engagement Model</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {["Fixed Price","Time & Materials","Capped T&M","Outcome-based"].map(v => (
+                        <button key={v} onClick={() => setCommercialShape(c => ({ ...c, engagementModel: v }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                            commercialShape.engagementModel === v ? "bg-blue-700 border-blue-700 text-white" : "border-gray-200 text-gray-600 hover:border-blue-400"
+                          }`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Currency */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Currency</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {["USD","EUR","GBP","AED","SGD","INR"].map(v => (
+                        <button key={v} onClick={() => setCommercialShape(c => ({ ...c, currency: v }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                            commercialShape.currency === v ? "bg-green-700 border-green-700 text-white" : "border-gray-200 text-gray-600 hover:border-green-400"
+                          }`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Total Contract Value */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Total Contract Value</label>
+                    <input value={commercialShape.totalValue}
+                      onChange={e => setCommercialShape(c => ({ ...c, totalValue: e.target.value }))}
+                      placeholder={`e.g. ${commercialShape.currency} 1,200,000`}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+
+                  {/* Payment Terms */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Payment Terms</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {["Net 15","Net 30","Net 45","Net 60"].map(v => (
+                        <button key={v} onClick={() => setCommercialShape(c => ({ ...c, paymentTerms: v }))}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                            commercialShape.paymentTerms === v ? "bg-blue-600 border-blue-600 text-white" : "border-gray-200 text-gray-600 hover:border-blue-400"
+                          }`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Payment Schedule */}
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Payment Schedule</label>
+                    <input value={commercialShape.paymentSchedule}
+                      onChange={e => setCommercialShape(c => ({ ...c, paymentSchedule: e.target.value }))}
+                      placeholder="e.g. 30% mobilisation, 40% delivery, 30% go-live"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+
+                  {/* Expense Policy */}
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Expense Policy</label>
+                    <input value={commercialShape.expensePolicy}
+                      onChange={e => setCommercialShape(c => ({ ...c, expensePolicy: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+
+                  {/* Warranty Period */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Warranty Period</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {["30 days","60 days","90 days","None"].map(v => (
+                        <button key={v} onClick={() => setCommercialShape(c => ({ ...c, warrantyPeriod: v }))}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                            commercialShape.warrantyPeriod === v ? "bg-purple-600 border-purple-600 text-white" : "border-gray-200 text-gray-600 hover:border-purple-400"
+                          }`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Notice Period */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Notice Period</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {["14 days","30 days","60 days","90 days"].map(v => (
+                        <button key={v} onClick={() => setCommercialShape(c => ({ ...c, noticeperiod: v }))}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                            commercialShape.noticeperiod === v ? "bg-indigo-600 border-indigo-600 text-white" : "border-gray-200 text-gray-600 hover:border-indigo-400"
+                          }`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Governing Law */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Governing Law</label>
+                    <input value={commercialShape.governingLaw}
+                      onChange={e => setCommercialShape(c => ({ ...c, governingLaw: e.target.value }))}
+                      placeholder="e.g. Laws of England & Wales"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+
+                  {/* Penalty Clauses */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Penalty / Liquidated Damages</label>
+                    <input value={commercialShape.penaltyClauses}
+                      onChange={e => setCommercialShape(c => ({ ...c, penaltyClauses: e.target.value }))}
+                      placeholder="e.g. 0.5% per day of delay, capped at 5%"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+
+                  {/* Additional Terms */}
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Additional Commercial Terms</label>
+                    <textarea value={commercialShape.additionalTerms}
+                      onChange={e => setCommercialShape(c => ({ ...c, additionalTerms: e.target.value }))}
+                      rows={3} placeholder="Any other commercial clauses, exclusions, or special conditions"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 resize-none" />
+                  </div>
+                </div>
+
+                {/* Summary card */}
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
+                  <h4 className="text-xs font-bold text-green-800 uppercase tracking-wide mb-2">Commercial Summary</h4>
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    {[
+                      ["Model", commercialShape.engagementModel],
+                      ["Currency", commercialShape.currency],
+                      ["Value", commercialShape.totalValue || "TBD"],
+                      ["Terms", commercialShape.paymentTerms],
+                      ["Warranty", commercialShape.warrantyPeriod],
+                      ["Notice", commercialShape.noticeperiod],
+                    ].map(([k, v]) => (
+                      <div key={k} className="bg-white rounded-lg px-3 py-1.5 border border-green-100 text-center min-w-[90px]">
+                        <div className="text-gray-400 text-[10px]">{k}</div>
+                        <div className="font-bold text-green-900 text-xs">{v}</div>
                       </div>
                     ))}
                   </div>
