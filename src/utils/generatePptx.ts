@@ -47,6 +47,7 @@ export interface FormData {
   bestPractices?: BestPracticesResponse;
   outputConfig?: OutputConfig;
   amsData?: AMSData;
+  clientContext?: string;
 }
 
 // Derived at generation time from OutputConfig
@@ -863,6 +864,47 @@ function addRiskRegisterSlide(pptx: PptxGenJS, data: FormData) {
 }
 
 // ──────────────────────────────────────────────
+// Client Context Slide (verbatim pass-through)
+// ──────────────────────────────────────────────
+function addClientContextSlide(pptx: PptxGenJS, data: FormData) {
+  const ctx = data.clientContext?.trim();
+  if (!ctx) return;
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "Client Context", "Background & Strategic Context");
+
+  // Decorative left bar
+  slide.addShape("rect", { x: 0.25, y: 1.05, w: 0.06, h: 5.9, fill: { color: COLORS.accentGold } });
+
+  // Render text verbatim — split into paragraphs for readable wrapping
+  const paragraphs = ctx.split(/\n{1,}/).filter(p => p.trim());
+  let curY = 1.1;
+  const textX = 0.45;
+  const textW = 9.1;
+  const paraSpacing = 0.18;
+  const lineH = DENSITY.bodyFontSize * 0.022; // approximate inches per line
+
+  paragraphs.forEach(para => {
+    if (curY + lineH > 6.9) return;
+    // Estimate height: ~80 chars per line at 10pt in 9.1" wide
+    const charsPerLine = Math.floor(textW / (DENSITY.bodyFontSize * 0.072));
+    const lines = Math.ceil(para.length / charsPerLine) || 1;
+    const blockH = Math.min(lines * lineH + 0.08, 6.9 - curY);
+
+    slide.addText(para, {
+      x: textX, y: curY, w: textW, h: blockH,
+      fontSize: DENSITY.bodyFontSize,
+      color: COLORS.darkGray,
+      fontFace: FONT,
+    });
+    curY += blockH + paraSpacing;
+  });
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
 // AMS Details Slide
 // ──────────────────────────────────────────────
 function addAMSSlide(pptx: PptxGenJS, data: FormData) {
@@ -1020,6 +1062,7 @@ export async function generatePptx(data: FormData): Promise<void> {
 
   if (!s || s.title)        addTitleSlide(pptx, data);
   if (!s || s.products)     addProductsSlide(pptx, data);
+  if (data.clientContext?.trim() && (!s || s.clientContext)) addClientContextSlide(pptx, data);
   if (!s || s.landscape)    addLandscapeSlide(pptx, data);
   if (!s || s.scope)        addScopeSlide(pptx, data);
   if (!s || s.raci)         addRACISlide(pptx, data);

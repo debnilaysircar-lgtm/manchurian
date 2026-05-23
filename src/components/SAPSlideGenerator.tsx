@@ -7,6 +7,7 @@ import { generatePptx } from "../utils/generatePptx";
 import { generateResourcesFromProducts, PHASE_LABELS } from "../data/resourceMapping";
 import { fetchBestPractices } from "../utils/fetchBestPractices";
 import type { BestPracticesResponse } from "../utils/fetchBestPractices";
+import { autoGenerate } from "../utils/autoGenerate";
 import type { OutputConfig } from "../types/outputConfig";
 import { DEFAULT_CONFIG, THEME_PALETTES } from "../types/outputConfig";
 import type { AMSData } from "../types/amsData";
@@ -76,6 +77,44 @@ const STEPS: { key: Step; label: string; icon: string }[] = [
   { key: "review",       label: "Generate",       icon: "⬇️" },
 ];
 
+// Shared auto-generate banner used on scope/RACI/deps/assumptions steps
+function AutoGenBanner({
+  ready, loading, error, onGenerate, label,
+}: {
+  ready: boolean; loading: boolean; error: string | null;
+  onGenerate: () => void; label: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl px-4 py-3">
+      <span className="text-xl flex-shrink-0">✨</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-amber-900">{label}</p>
+        {error && <p className="text-xs text-red-600 mt-0.5 truncate">⚠ {error}</p>}
+        {!error && <p className="text-xs text-amber-600 mt-0.5">All four fields (scope, RACI, dependencies, assumptions) are regenerated at once.</p>}
+      </div>
+      <button
+        onClick={onGenerate}
+        disabled={!ready || loading}
+        className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+          !ready ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+          : loading ? "bg-amber-200 text-amber-700 cursor-wait"
+          : "bg-amber-500 hover:bg-amber-600 text-white"
+        }`}
+      >
+        {loading ? (
+          <>
+            <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            Generating…
+          </>
+        ) : "⚡ Auto-generate"}
+      </button>
+    </div>
+  );
+}
+
 // Colour scale matching the PPTX heatmap
 function heatBg(pct: number): string {
   if (pct === 0)   return "#F2F2F2";
@@ -113,6 +152,9 @@ export default function SAPSlideGenerator() {
   const [assumptions, setAssumptions] = useState<string[]>(DEFAULT_ASSUMPTIONS);
   const [resources, setResources] = useState<ResourceEntry[]>([]);
   const [amsData, setAmsData] = useState<AMSData>(DEFAULT_AMS);
+  const [clientContext, setClientContext] = useState("");
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const [autoGenError, setAutoGenError] = useState<string | null>(null);
 
   // Auto-generate resources when entering the resources step
   useEffect(() => {
@@ -154,7 +196,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -163,6 +205,28 @@ export default function SAPSlideGenerator() {
     } finally {
       setGenerating(false);
       setFetchingAI(false);
+    }
+  }
+
+  async function handleAutoGenerate() {
+    if (selectedProducts.length === 0) return;
+    setAutoGenerating(true);
+    setAutoGenError(null);
+    try {
+      const result = await autoGenerate(
+        selectedProducts.map(p => p.name),
+        projectName,
+        clientContext,
+        outputConfig.aiTone,
+      );
+      if (result.scopeItems?.length)  setScopeItems(result.scopeItems);
+      if (result.raciEntries?.length) setRaciEntries(result.raciEntries);
+      if (result.dependencies?.length) setDependencies(result.dependencies);
+      if (result.assumptions?.length) setAssumptions(result.assumptions);
+    } catch (err) {
+      setAutoGenError(String(err));
+    } finally {
+      setAutoGenerating(false);
     }
   }
 
@@ -286,20 +350,41 @@ export default function SAPSlideGenerator() {
 
             {/* ── BASICS ── */}
             {step === "basics" && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Project Name *</label>
-                  <input value={projectName} onChange={e => setProjectName(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                {[["Client / Organisation", client, setClient, "ACME Corp"], ["Project Manager", projectManager, setProjectManager, "Jane Smith"],
-                  ["Prepared By", preparedBy, setPreparedBy, "Your Name"], ["Version", version, setVersion, "1.0"]].map(([label, val, setter, placeholder]) => (
-                  <div key={label as string}>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">{label as string}</label>
-                    <input value={val as string} onChange={e => (setter as (v: string) => void)(e.target.value)} placeholder={placeholder as string}
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Project Name *</label>
+                    <input value={projectName} onChange={e => setProjectName(e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
                   </div>
-                ))}
+                  {[["Client / Organisation", client, setClient, "ACME Corp"], ["Project Manager", projectManager, setProjectManager, "Jane Smith"],
+                    ["Prepared By", preparedBy, setPreparedBy, "Your Name"], ["Version", version, setVersion, "1.0"]].map(([label, val, setter, placeholder]) => (
+                    <div key={label as string}>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">{label as string}</label>
+                      <input value={val as string} onChange={e => (setter as (v: string) => void)(e.target.value)} placeholder={placeholder as string}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Client context */}
+                <div className="border-t border-gray-100 pt-5">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Client Context
+                    <span className="ml-2 text-xs font-normal text-gray-400">— included verbatim as a dedicated slide</span>
+                  </label>
+                  <textarea
+                    value={clientContext}
+                    onChange={e => setClientContext(e.target.value)}
+                    rows={7}
+                    placeholder={`Paste any background information, strategic objectives, pain points, or client-specific context here.\n\nThis text will appear exactly as written on a "Client Context" slide in the output deck. It is also used by the AI auto-generator to tailor scope, RACI, dependencies, and assumptions to your client's situation.\n\nExample:\nACME Corp is a global manufacturing firm with 8,000 employees across 12 countries. They are replacing a legacy ECC 6.0 landscape with S/4HANA Cloud. Key pain points include manual finance close taking 12 days, no real-time inventory visibility, and inability to consolidate group reporting...`}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y leading-relaxed text-gray-700"
+                  />
+                  <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
+                    The AI uses this context to generate tailored scope, RACI, dependencies, and assumptions on the next steps.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -341,6 +426,13 @@ export default function SAPSlideGenerator() {
             {/* ── SCOPE ── */}
             {step === "scope" && (
               <div className="space-y-3">
+                <AutoGenBanner
+                  ready={selectedProducts.length > 0}
+                  loading={autoGenerating}
+                  error={autoGenError}
+                  onGenerate={handleAutoGenerate}
+                  label="Auto-generate scope from selected SAP products"
+                />
                 <p className="text-sm text-gray-600">Define in-scope deliverables.</p>
                 {scopeItems.map((item, i) => (
                   <div key={i} className="flex gap-2 items-center">
@@ -359,6 +451,13 @@ export default function SAPSlideGenerator() {
             {/* ── RACI ── */}
             {step === "raci" && (
               <div>
+                <AutoGenBanner
+                  ready={selectedProducts.length > 0}
+                  loading={autoGenerating}
+                  error={autoGenError}
+                  onGenerate={handleAutoGenerate}
+                  label="Auto-generate RACI matrix from selected SAP products"
+                />
                 <p className="text-sm text-gray-600 mb-3">Use single letters R / A / C / I for clean badge rendering.</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -400,6 +499,13 @@ export default function SAPSlideGenerator() {
             {/* ── DEPENDENCIES ── */}
             {step === "dependencies" && (
               <div className="space-y-3">
+                <AutoGenBanner
+                  ready={selectedProducts.length > 0}
+                  loading={autoGenerating}
+                  error={autoGenError}
+                  onGenerate={handleAutoGenerate}
+                  label="Auto-generate dependencies from selected SAP products"
+                />
                 <p className="text-sm text-gray-600">List project and technical dependencies.</p>
                 {dependencies.map((dep, i) => (
                   <div key={i} className="flex gap-2 items-center">
@@ -418,6 +524,13 @@ export default function SAPSlideGenerator() {
             {/* ── ASSUMPTIONS ── */}
             {step === "assumptions" && (
               <div className="space-y-3">
+                <AutoGenBanner
+                  ready={selectedProducts.length > 0}
+                  loading={autoGenerating}
+                  error={autoGenError}
+                  onGenerate={handleAutoGenerate}
+                  label="Auto-generate assumptions from selected SAP products"
+                />
                 <p className="text-sm text-gray-600">List project assumptions.</p>
                 {assumptions.map((item, i) => (
                   <div key={i} className="flex gap-2 items-center">

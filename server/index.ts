@@ -105,6 +105,113 @@ Return only raw JSON, nothing else.`;
   }
 });
 
+// ── /api/auto-generate ─────────────────────────────────────────────────────
+interface AutoGenerateRequest {
+  products: string[];
+  projectName?: string;
+  clientContext?: string;
+  tone?: "strategic" | "technical" | "concise";
+}
+
+export interface AutoGenerateResponse {
+  scopeItems: string[];
+  outOfScope: string[];
+  raciEntries: Array<{
+    activity: string;
+    responsible: string;
+    accountable: string;
+    consulted: string;
+    informed: string;
+  }>;
+  dependencies: string[];
+  assumptions: string[];
+}
+
+function extractJson(raw: string): string {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  return start >= 0 ? raw.slice(start, end + 1) : raw;
+}
+
+app.post("/api/auto-generate", async (req, res) => {
+  const { products, projectName, clientContext, tone } = req.body as AutoGenerateRequest;
+
+  if (!products || products.length === 0) {
+    return res.status(400).json({ error: "products array is required" });
+  }
+
+  const toneGuide =
+    tone === "technical"  ? "Use precise, technical implementation language."
+    : tone === "concise"  ? "Be very brief. Short bullet-point style sentences."
+    : "Use professional, business-outcome focused language suitable for executive review.";
+
+  const context = clientContext?.trim()
+    ? `\n\nAdditional client context provided:\n${clientContext}`
+    : "";
+
+  const prompt = `You are a senior SAP implementation consultant.
+Project: ${projectName || "SAP Implementation"}
+SAP Products in scope: ${products.join(", ")}${context}
+
+${toneGuide}
+
+Generate project content in strict JSON format. Return ONLY raw JSON, no markdown, no code fences.
+
+{
+  "scopeItems": [
+    "8 to 10 specific in-scope deliverables tailored to the SAP products listed"
+  ],
+  "outOfScope": [
+    "5 to 6 realistic out-of-scope items for this implementation"
+  ],
+  "raciEntries": [
+    {
+      "activity": "activity or deliverable name",
+      "responsible": "R",
+      "accountable": "A",
+      "consulted": "C",
+      "informed": "I"
+    }
+  ],
+  "dependencies": [
+    "8 to 10 specific project and technical dependencies for these products"
+  ],
+  "assumptions": [
+    "8 to 10 realistic project assumptions for this SAP implementation"
+  ]
+}
+
+Rules:
+- scopeItems: 8–10 items, product-specific (mention the actual SAP modules)
+- outOfScope: 5–6 items
+- raciEntries: 8–10 rows covering governance, configuration, data migration, testing, training, go-live, hypercare
+- Each RACI cell must be a single letter: R, A, C, or I
+- dependencies: 8–10 items referencing the specific products
+- assumptions: 8–10 items
+- ALL content must be tailored to the selected SAP products, not generic boilerplate
+- Return ONLY raw JSON`;
+
+  try {
+    const message = await client.messages.create({
+      model: "claude-opus-4-7",
+      max_tokens: 4000,
+      thinking: { type: "adaptive" },
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const textBlock = message.content.find(b => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return res.status(500).json({ error: "No text response from AI" });
+    }
+
+    const parsed: AutoGenerateResponse = JSON.parse(extractJson(textBlock.text));
+    res.json(parsed);
+  } catch (err) {
+    console.error("Error calling Claude API:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Best-practices API running on http://localhost:${PORT}`);
