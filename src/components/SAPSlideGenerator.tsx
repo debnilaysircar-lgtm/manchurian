@@ -194,6 +194,21 @@ export default function SAPSlideGenerator() {
     );
     return new Set(allLeaves.filter(t => !selectedCapabilities.has(t)));
   }, [selectedCapabilities]);
+
+  // Which AMS domains have at least one capability selected (drives resource rows)
+  const capDomains = useMemo(() => {
+    function walk(n: { text: string; children?: typeof n[] }): string[] {
+      return n.children?.length ? n.children.flatMap(walk) : [n.text];
+    }
+    const basisLeaves   = new Set(AMS_ARCHITECTURE[0].tree.flatMap(walk));
+    const secLeaves     = new Set(AMS_ARCHITECTURE[1].tree.flatMap(walk));
+    const solmanLeaves  = new Set(AMS_ARCHITECTURE[2]?.tree.flatMap(walk) ?? []);
+    return {
+      hasBasis:    [...selectedCapabilities].some(t => basisLeaves.has(t)),
+      hasSecurity: [...selectedCapabilities].some(t => secLeaves.has(t)),
+      hasSolMan:   [...selectedCapabilities].some(t => solmanLeaves.has(t)),
+    };
+  }, [selectedCapabilities]);
   const [commercialShape, setCommercialShape] = useState<CommercialShape>({
     engagementModel: "Fixed Price",
     currency: "USD",
@@ -211,7 +226,7 @@ export default function SAPSlideGenerator() {
   // Auto-generate resources when entering the resources step
   useEffect(() => {
     if (step === "resources" && resources.length === 0 && selectedProducts.length > 0) {
-      setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id)));
+      setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id), capDomains));
     }
   }, [step]);
 
@@ -366,7 +381,7 @@ export default function SAPSlideGenerator() {
   function removeResourceRow(idx: number) { setResources(resources.filter((_, i) => i !== idx)); }
   function regenerateResources() {
     if (selectedProducts.length === 0) return;
-    setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id)));
+    setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id), capDomains));
   }
 
   // Per-phase FTE totals
@@ -534,7 +549,7 @@ export default function SAPSlideGenerator() {
                 <CapabilitiesPicker
                   products={selectedProducts}
                   selected={capsByProduct}
-                  onChange={setCapsByProduct}
+                  onChange={next => { setCapsByProduct(next); setResources([]); }}
                 />
               </div>
             )}
