@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
 import {
   CORE_PHASES, CORE_CSFS, CORE_RISKS, CORE_RACI,
   CORE_OUT_OF_SCOPE, CORE_ASSUMPTIONS, CORE_DEPENDENCIES, CORE_SERVICES,
@@ -202,9 +203,23 @@ app.post("/api/auto-resources", (req, res) => {
   res.json(result);
 });
 
+// ─── Health check ─────────────────────────────────────────────────────────────
+
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// ─── Static frontend (production only) ───────────────────────────────────────
+
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.resolve(process.cwd(), "dist");
+  app.use(express.static(distPath));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`SAP Slide Generator API running on http://localhost:${PORT}`);
+  console.log(`SAP Slide Generator running on http://localhost:${PORT}`);
 });
