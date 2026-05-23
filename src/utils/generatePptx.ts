@@ -53,7 +53,8 @@ export interface FormData {
   serviceCatalog?: ServiceCatalogEntry[];
   commercialShape?: CommercialShape;
   selectedCapabilities?: Set<string>;
-  outOfScopeGaps?: Set<string>;
+  outOfScopeGaps?: Set<string>;      // manually selected EMEA gap items
+  autoOutOfScope?: Set<string>;      // unselected AMS capabilities (auto-derived)
 }
 
 export interface CommercialShape {
@@ -426,23 +427,80 @@ function addScopeSlide(pptx: PptxGenJS, data: FormData) {
     slide.addText(`${i + 1}.  ${item}`, { x: 0.4, y: y + 0.04, w: colW - 0.2, h: 0.28, fontSize: 9.5, color: COLORS.darkGray, fontFace: FONT });
   });
 
-  const outItems: string[] = data.outOfScopeGaps?.size
-    ? Array.from(data.outOfScopeGaps).slice(0, 14)
-    : [
-      "Custom development beyond agreed specifications",
-      "Data migration from non-SAP legacy systems",
-      "Third-party integrations not listed in scope",
-      "End-user hardware provisioning",
-      "Production support post go-live (unless contracted)",
-      "Regulatory compliance advisory services",
-    ];
-  outItems.forEach((item, i) => {
-    const y = colY + 0.44 + i * 0.38;
-    if (y > 6.8) return;
-    const bg = i % 2 === 0 ? COLORS.lightGray : COLORS.white;
-    slide.addShape("rect", { x: 5.05, y, w: colW, h: 0.36, fill: { color: bg } });
-    slide.addText(`${i + 1}.  ${item}`, { x: 5.15, y: y + 0.04, w: colW - 0.2, h: 0.28, fontSize: 9.5, color: COLORS.darkGray, fontFace: FONT });
-  });
+  // ── Out-of-scope column: two labelled groups ─────────────────────────
+  const gapItems    = data.outOfScopeGaps  ? Array.from(data.outOfScopeGaps)  : [];
+  const autoItems   = data.autoOutOfScope  ? Array.from(data.autoOutOfScope)  : [];
+  const defaultItems = [
+    "Custom development beyond agreed specifications",
+    "Data migration from non-SAP legacy systems",
+    "Third-party integrations not listed in scope",
+    "End-user hardware provisioning",
+    "Production support post go-live (unless contracted)",
+    "Regulatory compliance advisory services",
+  ];
+
+  // If nothing is selected from either source, fall back to defaults
+  const hasAny = gapItems.length > 0 || autoItems.length > 0;
+
+  const ox = 5.05;
+  let outY = colY + 0.44;
+  const rowH = 0.34;
+  const rowGap = 0.04;
+  const maxY = 6.82;
+
+  function addOutRow(label: string, idx: number, bgOverride?: string) {
+    if (outY + rowH > maxY) return;
+    const bg = bgOverride ?? (idx % 2 === 0 ? COLORS.lightGray : COLORS.white);
+    slide.addShape("rect", { x: ox, y: outY, w: colW, h: rowH, fill: { color: bg } });
+    slide.addText(`${idx + 1}.  ${label}`, {
+      x: ox + 0.1, y: outY + 0.04, w: colW - 0.2, h: rowH - 0.08,
+      fontSize: 9, color: COLORS.darkGray, fontFace: FONT,
+    });
+    outY += rowH + rowGap;
+  }
+
+  function addGroupHeader(label: string, color: string) {
+    if (outY + 0.26 > maxY) return;
+    slide.addShape("rect", { x: ox, y: outY, w: colW, h: 0.26, fill: { color } });
+    slide.addText(label, {
+      x: ox + 0.1, y: outY, w: colW - 0.2, h: 0.26,
+      fontSize: 7.5, bold: true, color: COLORS.white, fontFace: FONT, charSpacing: 1,
+    });
+    outY += 0.26 + 0.04;
+  }
+
+  if (!hasAny) {
+    defaultItems.forEach((item, i) => addOutRow(item, i));
+  } else {
+    // Group 1: EMEA Architecture Gaps (consciously selected)
+    if (gapItems.length > 0) {
+      addGroupHeader("⬛  EMEA ARCHITECTURE GAPS  (selected)", "C0392B");
+      gapItems.slice(0, 7).forEach((item, i) => addOutRow(item, i));
+      if (gapItems.length > 7) {
+        if (outY + 0.22 <= maxY) {
+          slide.addText(`  +${gapItems.length - 7} more…`, {
+            x: ox + 0.1, y: outY, w: colW - 0.2, h: 0.22,
+            fontSize: 7.5, color: COLORS.textGray, fontFace: FONT, italic: true,
+          });
+          outY += 0.26;
+        }
+      }
+    }
+    // Group 2: Unselected AMS Capabilities (auto-derived)
+    if (autoItems.length > 0) {
+      addGroupHeader("⬜  UNSELECTED AMS CAPABILITIES  (review required)", "E67E22");
+      autoItems.slice(0, 6).forEach((item, i) => addOutRow(item, i, i % 2 === 0 ? "FEF3E2" : COLORS.white));
+      if (autoItems.length > 6) {
+        if (outY + 0.22 <= maxY) {
+          slide.addText(`  +${autoItems.length - 6} not yet configured…`, {
+            x: ox + 0.1, y: outY, w: colW - 0.2, h: 0.22,
+            fontSize: 7.5, color: COLORS.textGray, fontFace: FONT, italic: true,
+          });
+          outY += 0.26;
+        }
+      }
+    }
+  }
 
   addSlideFooter(slide, data);
 }

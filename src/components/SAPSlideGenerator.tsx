@@ -263,9 +263,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      // Merge auto-derived (unselected AMS caps) with manually selected EMEA gap items
-      const mergedOutOfScope = new Set([...autoOutOfScope, ...outOfScopeGaps]);
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: mergedOutOfScope.size ? mergedOutOfScope : undefined };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: outOfScopeGaps.size ? outOfScopeGaps : undefined, autoOutOfScope: autoOutOfScope.size ? autoOutOfScope : undefined };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -613,23 +611,55 @@ export default function SAPSlideGenerator() {
                   </button>
                 </div>
 
-                {/* Out of Scope — Gap Architecture Picker */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
+                {/* Out of Scope — two separate sources */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                     <h4 className="text-sm font-bold text-gray-800">Out of Scope</h4>
-                    {autoOutOfScope.size > 0 && (
-                      <span className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
-                        {autoOutOfScope.size} auto (unselected AMS capabilities)
-                      </span>
-                    )}
-                    {outOfScopeGaps.size > 0 && (
-                      <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full font-medium">
-                        +{outOfScopeGaps.size} EMEA gap items
-                      </span>
-                    )}
                   </div>
-                  <GapPicker selected={outOfScopeGaps} onChange={setOutOfScopeGaps} />
+
+                  {/* Auto-derived: unselected AMS capabilities */}
+                  {autoOutOfScope.size > 0 && (
+                    <div className="border border-orange-200 rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border-b border-orange-200">
+                        <span className="text-sm">⚠️</span>
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-orange-900">
+                            Unselected AMS Capabilities — Review Required
+                          </p>
+                          <p className="text-xs text-orange-600 mt-0.5">
+                            {autoOutOfScope.size} capabilities were not selected on the Capabilities step. They are auto-added as out-of-scope. Go back and select any that should be in scope.
+                          </p>
+                        </div>
+                        <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-1 rounded-full flex-shrink-0">
+                          {autoOutOfScope.size}
+                        </span>
+                      </div>
+                      <div className="px-4 py-2 max-h-36 overflow-y-auto bg-white">
+                        {[...autoOutOfScope].slice(0, 30).map((item, i) => (
+                          <p key={i} className="text-xs text-orange-700 py-0.5 border-b border-orange-50 last:border-0">
+                            <span className="text-orange-300 mr-1.5">•</span>{item}
+                          </p>
+                        ))}
+                        {autoOutOfScope.size > 30 && (
+                          <p className="text-xs text-orange-400 italic pt-1">+{autoOutOfScope.size - 30} more…</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* EMEA Architecture Gaps — consciously selected */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-gray-600">EMEA Architecture Gaps</span>
+                      {outOfScopeGaps.size > 0 && (
+                        <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full font-medium">
+                          {outOfScopeGaps.size} selected
+                        </span>
+                      )}
+                    </div>
+                    <GapPicker selected={outOfScopeGaps} onChange={setOutOfScopeGaps} />
+                  </div>
                 </div>
               </div>
             )}
