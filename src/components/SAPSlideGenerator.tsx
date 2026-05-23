@@ -9,6 +9,8 @@ import { fetchBestPractices } from "../utils/fetchBestPractices";
 import type { BestPracticesResponse } from "../utils/fetchBestPractices";
 import type { OutputConfig } from "../types/outputConfig";
 import { DEFAULT_CONFIG, THEME_PALETTES } from "../types/outputConfig";
+import type { AMSData } from "../types/amsData";
+import { DEFAULT_AMS } from "../types/amsData";
 
 const DEFAULT_SYSTEMS: SystemEnvironment[] = [
   { name: "Sandbox", enabled: false, description: "Exploration & PoC testing" },
@@ -60,7 +62,7 @@ const DEFAULT_ASSUMPTIONS = [
   "Business sign-off on design documents will be completed within 5 business days",
 ];
 
-type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "review";
+type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "review";
 const STEPS: { key: Step; label: string; icon: string }[] = [
   { key: "basics",       label: "Project Info",  icon: "📁" },
   { key: "products",     label: "SAP Products",  icon: "🔧" },
@@ -70,6 +72,7 @@ const STEPS: { key: Step; label: string; icon: string }[] = [
   { key: "dependencies", label: "Dependencies",   icon: "🔗" },
   { key: "assumptions",  label: "Assumptions",    icon: "💡" },
   { key: "resources",    label: "Resources",      icon: "📊" },
+  { key: "ams",          label: "AMS",            icon: "🛎️" },
   { key: "review",       label: "Generate",       icon: "⬇️" },
 ];
 
@@ -109,6 +112,7 @@ export default function SAPSlideGenerator() {
   const [dependencies, setDependencies] = useState<string[]>(DEFAULT_DEPS);
   const [assumptions, setAssumptions] = useState<string[]>(DEFAULT_ASSUMPTIONS);
   const [resources, setResources] = useState<ResourceEntry[]>([]);
+  const [amsData, setAmsData] = useState<AMSData>(DEFAULT_AMS);
 
   // Auto-generate resources when entering the resources step
   useEffect(() => {
@@ -150,7 +154,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -532,6 +536,261 @@ export default function SAPSlideGenerator() {
                     </button>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* ── AMS ── */}
+            {step === "ams" && (
+              <div className="space-y-6">
+                <p className="text-sm text-gray-600">
+                  Enter Application Management Services parameters. These populate a dedicated AMS slide in the output deck.
+                </p>
+
+                {/* Volume & Users */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Volume &amp; Users</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      ["Total Users", "totalUsers", "e.g. 5000"],
+                      ["Named / Active Users", "namedUsers", "e.g. 3000"],
+                      ["Concurrent Users", "concurrentUsers", "e.g. 500"],
+                    ] as const).map(([label, field, placeholder]) => (
+                      <div key={field}>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
+                        <input
+                          type="text"
+                          value={amsData[field]}
+                          onChange={e => setAmsData(d => ({ ...d, [field]: e.target.value }))}
+                          placeholder={placeholder}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    ))}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Annual Transaction Volume</label>
+                      <select value={amsData.txVolume} onChange={e => setAmsData(d => ({ ...d, txVolume: e.target.value as AMSData["txVolume"] }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                        {(["<1M","1–5M","5–10M","10M+"] as const).map(v => <option key={v}>{v}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Support Model */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Support Model</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Support Model</label>
+                      <select value={amsData.supportModel} onChange={e => setAmsData(d => ({ ...d, supportModel: e.target.value as AMSData["supportModel"] }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                        {(["Dedicated","Shared Pool","Hybrid","Self-Service"] as const).map(v => <option key={v}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Support Hours</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {(["8x5","12x5","16x5","24x5","24x7"] as const).map(v => (
+                          <button key={v} onClick={() => setAmsData(d => ({ ...d, supportHours: v }))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                              amsData.supportHours === v ? "bg-blue-600 border-blue-600 text-white" : "border-gray-200 text-gray-600 hover:border-blue-400"
+                            }`}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Support Languages</label>
+                      <input value={amsData.supportLanguages} onChange={e => setAmsData(d => ({ ...d, supportLanguages: e.target.value }))}
+                        placeholder="e.g. English, German, Japanese"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Onshore / Offshore Split (%)</label>
+                      <div className="flex gap-2 items-center">
+                        <input type="number" min={0} max={100} value={amsData.onshorePercent}
+                          onChange={e => {
+                            const v = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                            setAmsData(d => ({ ...d, onshorePercent: String(v), offshorePercent: String(100 - v) }));
+                          }}
+                          className="w-20 border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:ring-2 focus:ring-blue-500" />
+                        <span className="text-gray-500 text-sm">Onshore</span>
+                        <span className="text-gray-400">/</span>
+                        <span className="w-20 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center bg-gray-50 text-gray-600">{amsData.offshorePercent}%</span>
+                        <span className="text-gray-500 text-sm">Offshore</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SLA Targets */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">SLA Response Targets</h3>
+                  <div className="rounded-xl border border-gray-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-blue-800 text-white text-xs">
+                          <th className="px-4 py-2 text-left">Priority</th>
+                          <th className="px-4 py-2 text-left">Description</th>
+                          <th className="px-4 py-2 text-left">Response Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {([
+                          ["P1", "Critical — System Down", "slaP1", ["15 min","30 min","1 hr","2 hr"], "bg-red-50"],
+                          ["P2", "High — Major Impact", "slaP2", ["1 hr","2 hr","4 hr","8 hr"], "bg-orange-50"],
+                          ["P3", "Medium — Partial Impact", "slaP3", ["4 hr","8 hr","1 day","2 days"], ""],
+                          ["P4", "Low — Minor / Cosmetic", "slaP4", ["1 day","2 days","5 days"], "bg-gray-50"],
+                        ] as const).map(([priority, desc, field, options, rowBg]) => (
+                          <tr key={priority} className={`border-t border-gray-100 ${rowBg}`}>
+                            <td className="px-4 py-2.5">
+                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ${
+                                priority === "P1" ? "bg-red-500" : priority === "P2" ? "bg-orange-500" : priority === "P3" ? "bg-yellow-500" : "bg-teal-600"
+                              }`}>{priority}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-600 text-xs">{desc}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex gap-1.5 flex-wrap">
+                                {options.map(v => (
+                                  <button key={v} onClick={() => setAmsData(d => ({ ...d, [field]: v }))}
+                                    className={`px-2.5 py-1 rounded text-xs font-semibold border transition-colors ${
+                                      amsData[field] === v ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300 text-gray-600 hover:border-blue-400"
+                                    }`}>{v}</button>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">System Availability Target</label>
+                    <div className="flex gap-2">
+                      {(["99%","99.5%","99.9%","99.95%"] as const).map(v => (
+                        <button key={v} onClick={() => setAmsData(d => ({ ...d, availability: v }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                            amsData.availability === v ? "bg-green-600 border-green-600 text-white" : "border-gray-200 text-gray-600 hover:border-green-400"
+                          }`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Service Scope */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Service Scope</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Monthly Ticket Volume</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {(["<100","100–500","500–1k","1k–5k","5k+"] as const).map(v => (
+                          <button key={v} onClick={() => setAmsData(d => ({ ...d, monthlyTickets: v }))}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                              amsData.monthlyTickets === v ? "bg-blue-600 border-blue-600 text-white" : "border-gray-200 text-gray-600 hover:border-blue-400"
+                            }`}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Monthly Change Requests (est.)</label>
+                      <input value={amsData.monthlyChanges} onChange={e => setAmsData(d => ({ ...d, monthlyChanges: e.target.value }))}
+                        placeholder="e.g. 20" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Hypercare Duration (weeks)</label>
+                      <div className="flex gap-2">
+                        {["4","8","12","16"].map(v => (
+                          <button key={v} onClick={() => setAmsData(d => ({ ...d, hypercareDuration: v }))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                              amsData.hypercareDuration === v ? "bg-teal-600 border-teal-600 text-white" : "border-gray-200 text-gray-600 hover:border-teal-400"
+                            }`}>{v}w</button>
+                        ))}
+                        <input type="number" value={amsData.hypercareDuration}
+                          onChange={e => setAmsData(d => ({ ...d, hypercareDuration: e.target.value }))}
+                          placeholder="custom" className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-center focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Training Hours Planned</label>
+                      <input value={amsData.trainingHours} onChange={e => setAmsData(d => ({ ...d, trainingHours: e.target.value }))}
+                        placeholder="e.g. 200" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">AMS Contract Duration</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {(["6 months","12 months","24 months","36 months"] as const).map(v => (
+                          <button key={v} onClick={() => setAmsData(d => ({ ...d, contractDuration: v }))}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                              amsData.contractDuration === v ? "bg-purple-600 border-purple-600 text-white" : "border-gray-200 text-gray-600 hover:border-purple-400"
+                            }`}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Dedicated Support Contacts</label>
+                      <input value={amsData.dedicatedContacts} onChange={e => setAmsData(d => ({ ...d, dedicatedContacts: e.target.value }))}
+                        placeholder="e.g. 3" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Escalation & Governance */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Escalation &amp; Governance</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Escalation Path</label>
+                      <input value={amsData.escalationPath} onChange={e => setAmsData(d => ({ ...d, escalationPath: e.target.value }))}
+                        placeholder="e.g. L1 → L2 → L3 → SAP Support"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Service Review Frequency</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {(["Weekly","Bi-weekly","Monthly","Quarterly"] as const).map(v => (
+                          <button key={v} onClick={() => setAmsData(d => ({ ...d, reviewFrequency: v }))}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
+                              amsData.reviewFrequency === v ? "bg-indigo-600 border-indigo-600 text-white" : "border-gray-200 text-gray-600 hover:border-indigo-400"
+                            }`}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Exclusions</label>
+                      <input value={amsData.exclusions} onChange={e => setAmsData(d => ({ ...d, exclusions: e.target.value }))}
+                        placeholder="What is not covered under AMS"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Additional Notes</label>
+                      <textarea value={amsData.additionalNotes} onChange={e => setAmsData(d => ({ ...d, additionalNotes: e.target.value }))}
+                        rows={2} placeholder="Any other service parameters or special conditions"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 resize-none" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live summary card */}
+                <div className="bg-gradient-to-r from-blue-50 to-teal-50 rounded-xl border border-blue-200 p-4">
+                  <h4 className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2">AMS Slide Preview</h4>
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    {[
+                      ["Users", amsData.totalUsers || "—"],
+                      ["Support", amsData.supportHours],
+                      ["Model", amsData.supportModel],
+                      ["Availability", amsData.availability],
+                      ["P1 SLA", amsData.slaP1],
+                      ["Tickets/mo", amsData.monthlyTickets],
+                      ["Contract", amsData.contractDuration],
+                      ["Hypercare", amsData.hypercareDuration ? `${amsData.hypercareDuration}w` : "—"],
+                    ].map(([k, v]) => (
+                      <div key={k} className="bg-white rounded-lg px-3 py-1.5 border border-blue-100 text-center min-w-[80px]">
+                        <div className="text-gray-400 text-[10px]">{k}</div>
+                        <div className="font-bold text-blue-900">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 

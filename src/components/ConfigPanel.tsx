@@ -39,6 +39,7 @@ const SLIDE_LABELS: { key: keyof OutputConfig["slides"]; label: string; group: s
   { key: "assumptions",  label: "Assumptions",             group: "Core" },
   { key: "resources",    label: "Resource Loading",        group: "Core" },
   { key: "timeline",     label: "Timeline",                group: "Core" },
+  { key: "ams",          label: "AMS Details",             group: "Core" },
   { key: "aiApproach",   label: "Implementation Approach", group: "AI" },
   { key: "aiCSF",        label: "Critical Success Factors","group": "AI" },
   { key: "aiRisks",      label: "Risk Register",           group: "AI" },

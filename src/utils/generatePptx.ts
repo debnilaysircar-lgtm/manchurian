@@ -3,6 +3,7 @@ import type { SAPProduct } from "../data/sapProducts";
 import type { BestPracticesResponse } from "./fetchBestPractices";
 import type { OutputConfig } from "../types/outputConfig";
 import { THEME_PALETTES, DENSITY_SETTINGS } from "../types/outputConfig";
+import type { AMSData } from "../types/amsData";
 
 export interface SystemEnvironment {
   name: string;
@@ -45,6 +46,7 @@ export interface FormData {
   version: string;
   bestPractices?: BestPracticesResponse;
   outputConfig?: OutputConfig;
+  amsData?: AMSData;
 }
 
 // Derived at generation time from OutputConfig
@@ -861,6 +863,145 @@ function addRiskRegisterSlide(pptx: PptxGenJS, data: FormData) {
 }
 
 // ──────────────────────────────────────────────
+// AMS Details Slide
+// ──────────────────────────────────────────────
+function addAMSSlide(pptx: PptxGenJS, data: FormData) {
+  const a = data.amsData;
+  if (!a) return;
+
+  const slide = pptx.addSlide();
+  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
+  addSlideHeader(slide, "AMS Service Overview", "Application Management Services — Service Parameters");
+
+  // ── KPI metric cards row ──────────────────────────
+  const kpis: Array<{ label: string; value: string; sub?: string; color: string }> = [
+    { label: "Total Users",        value: a.totalUsers       || "—", sub: a.namedUsers ? `${a.namedUsers} named` : undefined, color: COLORS.sapDarkBlue },
+    { label: "Concurrent Users",   value: a.concurrentUsers  || "—", color: COLORS.sapBlue },
+    { label: "Support Hours",      value: a.supportHours,             color: COLORS.teal },
+    { label: "Availability",       value: a.availability,             color: COLORS.green },
+    { label: "Contract Duration",  value: a.contractDuration,         color: COLORS.orange },
+  ];
+  const kpiW = 9.3 / kpis.length - 0.1;
+  kpis.forEach((k, i) => {
+    const x = 0.25 + i * (kpiW + 0.1);
+    slide.addShape("roundRect", { x, y: 1.05, w: kpiW, h: 1.05, fill: { color: k.color }, rectRadius: 0.08 });
+    slide.addText(k.value, {
+      x: x + 0.06, y: 1.1, w: kpiW - 0.12, h: 0.55,
+      fontSize: 18, bold: true, color: COLORS.white, fontFace: FONT, align: "center",
+    });
+    slide.addText(k.label, {
+      x: x + 0.06, y: 1.63, w: kpiW - 0.12, h: 0.22,
+      fontSize: 7.5, color: COLORS.white, fontFace: FONT, align: "center",
+    });
+    if (k.sub) {
+      slide.addText(k.sub, {
+        x: x + 0.06, y: 1.85, w: kpiW - 0.12, h: 0.18,
+        fontSize: 6.5, color: COLORS.accentGold, fontFace: FONT, align: "center", italic: true,
+      });
+    }
+  });
+
+  // ── Left column — Support Model & Scope ──────────
+  const colY = 2.28;
+  const colH = 4.6;
+  const lx = 0.25;
+  const lw = 4.5;
+
+  slide.addShape("roundRect", { x: lx, y: colY, w: lw, h: colH, fill: { color: COLORS.sapLightBlue }, line: { color: COLORS.medGray, width: 0.4 }, rectRadius: 0.08 });
+
+  // Section title
+  slide.addShape("roundRect", { x: lx, y: colY, w: lw, h: 0.36, fill: { color: COLORS.sapDarkBlue }, rectRadius: 0.08 });
+  slide.addText("Support Model & Scope", {
+    x: lx + 0.12, y: colY, w: lw - 0.24, h: 0.36,
+    fontSize: 9, bold: true, color: COLORS.white, fontFace: FONT,
+  });
+
+  const leftRows: Array<{ label: string; value: string }> = [
+    { label: "Support Model",          value: a.supportModel },
+    { label: "Support Languages",      value: a.supportLanguages || "—" },
+    { label: "Onshore / Offshore",     value: `${a.onshorePercent || "—"}% / ${a.offshorePercent || "—"}%` },
+    { label: "Monthly Ticket Volume",  value: a.monthlyTickets },
+    { label: "Monthly Changes (est.)", value: a.monthlyChanges || "—" },
+    { label: "Hypercare Duration",     value: a.hypercareDuration ? `${a.hypercareDuration} weeks` : "—" },
+    { label: "Training Hours",         value: a.trainingHours || "—" },
+    { label: "Transaction Volume",     value: a.txVolume },
+    { label: "Service Review",         value: a.reviewFrequency },
+    { label: "Dedicated Contacts",     value: a.dedicatedContacts || "—" },
+  ];
+
+  leftRows.forEach((row, i) => {
+    const ry = colY + 0.42 + i * 0.4;
+    if (ry + 0.38 > colY + colH) return;
+    const bg = i % 2 === 0 ? COLORS.white : COLORS.sapLightBlue;
+    slide.addShape("rect", { x: lx + 0.06, y: ry, w: lw - 0.12, h: 0.36, fill: { color: bg }, line: { color: COLORS.medGray, width: 0.2 } });
+    slide.addText(row.label, {
+      x: lx + 0.12, y: ry + 0.05, w: 2.0, h: 0.26,
+      fontSize: 8, color: COLORS.textGray, fontFace: FONT,
+    });
+    slide.addText(row.value, {
+      x: lx + 2.2, y: ry + 0.05, w: lw - 2.36, h: 0.26,
+      fontSize: 8.5, bold: true, color: COLORS.darkGray, fontFace: FONT,
+    });
+  });
+
+  // ── Right column — SLA Grid ───────────────────────
+  const rx2 = 5.0;
+  const rw = 4.75;
+
+  slide.addShape("roundRect", { x: rx2, y: colY, w: rw, h: colH, fill: { color: COLORS.lightGray }, line: { color: COLORS.medGray, width: 0.4 }, rectRadius: 0.08 });
+  slide.addShape("roundRect", { x: rx2, y: colY, w: rw, h: 0.36, fill: { color: COLORS.sapBlue }, rectRadius: 0.08 });
+  slide.addText("SLA Targets", {
+    x: rx2 + 0.12, y: colY, w: rw - 0.24, h: 0.36,
+    fontSize: 9, bold: true, color: COLORS.white, fontFace: FONT,
+  });
+
+  const slaRows: Array<{ priority: string; label: string; value: string; color: string }> = [
+    { priority: "P1", label: "Critical — System Down",       value: a.slaP1, color: "C0392B" },
+    { priority: "P2", label: "High — Major Function Impact", value: a.slaP2, color: COLORS.orange },
+    { priority: "P3", label: "Medium — Partial Impact",      value: a.slaP3, color: "D4AC0D" },
+    { priority: "P4", label: "Low — Minor / Cosmetic",       value: a.slaP4, color: COLORS.teal },
+  ];
+
+  slaRows.forEach((row, i) => {
+    const sy = colY + 0.44 + i * 0.52;
+    slide.addShape("roundRect", { x: rx2 + 0.1, y: sy, w: rw - 0.2, h: 0.46, fill: { color: COLORS.white }, line: { color: COLORS.medGray, width: 0.3 }, rectRadius: 0.05 });
+
+    // Priority badge
+    slide.addShape("roundRect", { x: rx2 + 0.16, y: sy + 0.08, w: 0.36, h: 0.3, fill: { color: row.color }, rectRadius: 0.04 });
+    slide.addText(row.priority, { x: rx2 + 0.16, y: sy + 0.08, w: 0.36, h: 0.3, fontSize: 9, bold: true, color: COLORS.white, fontFace: FONT, align: "center" });
+
+    slide.addText(row.label, { x: rx2 + 0.6, y: sy + 0.08, w: 2.6, h: 0.3, fontSize: 8, color: COLORS.textGray, fontFace: FONT });
+
+    // Response time badge
+    slide.addShape("roundRect", { x: rx2 + rw - 1.15, y: sy + 0.06, w: 1.0, h: 0.34, fill: { color: row.color + "1A" }, line: { color: row.color, width: 0.6 }, rectRadius: 0.04 });
+    slide.addText(row.value, { x: rx2 + rw - 1.15, y: sy + 0.06, w: 1.0, h: 0.34, fontSize: 9, bold: true, color: row.color, fontFace: FONT, align: "center" });
+  });
+
+  // Escalation path
+  const escY = colY + 0.44 + slaRows.length * 0.52 + 0.1;
+  if (escY + 0.44 < colY + colH) {
+    slide.addShape("roundRect", { x: rx2 + 0.1, y: escY, w: rw - 0.2, h: 0.44, fill: { color: COLORS.sapLightBlue }, line: { color: COLORS.sapBlue, width: 0.4 }, rectRadius: 0.05 });
+    slide.addText("Escalation Path", { x: rx2 + 0.2, y: escY + 0.04, w: 1.4, h: 0.18, fontSize: 7.5, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT });
+    slide.addText(a.escalationPath || "L1 → L2 → L3 → SAP Support", {
+      x: rx2 + 0.2, y: escY + 0.2, w: rw - 0.4, h: 0.2,
+      fontSize: 8, color: COLORS.sapDarkBlue, fontFace: FONT,
+    });
+  }
+
+  // Exclusions / notes strip
+  if (a.exclusions || a.additionalNotes) {
+    const noteY = colY + colH + 0.08;
+    const noteText = [a.exclusions && `Exclusions: ${a.exclusions}`, a.additionalNotes && `Notes: ${a.additionalNotes}`].filter(Boolean).join("   |   ");
+    if (noteY + 0.3 < 7.2) {
+      slide.addShape("rect", { x: 0.25, y: noteY, w: 9.3, h: 0.28, fill: { color: COLORS.lightGray }, line: { color: COLORS.medGray, width: 0.3 } });
+      slide.addText(noteText, { x: 0.35, y: noteY + 0.04, w: 9.1, h: 0.2, fontSize: 7, color: COLORS.textGray, fontFace: FONT, italic: true });
+    }
+  }
+
+  addSlideFooter(slide, data);
+}
+
+// ──────────────────────────────────────────────
 // Main export function
 // ──────────────────────────────────────────────
 export async function generatePptx(data: FormData): Promise<void> {
@@ -886,6 +1027,7 @@ export async function generatePptx(data: FormData): Promise<void> {
   if (!s || s.assumptions)  addAssumptionsSlide(pptx, data);
   if (!s || s.resources)    addResourceLoadingSlide(pptx, data);
   if (!s || s.timeline)     addTimelineSlide(pptx, data);
+  if (data.amsData && (!s || s.ams)) addAMSSlide(pptx, data);
 
   if (data.bestPractices) {
     if (!s || s.aiApproach) addImplementationApproachSlide(pptx, data);
