@@ -76,13 +76,17 @@ let COLORS = {
   white: "FFFFFF",
   lightGray: "F5F5F5",
   medGray: "E0E0E0",
-  darkGray: "333333",
+  darkGray: "1A1A2E",
   textGray: "555555",
   rowAlt: "EEF4FC",
   green: "107E3E",
   orange: "E9730C",
   purple: "6A2C8E",
   teal: "0F7B8C",
+  // Reference-style structural colours (fixed, not theme-overridden)
+  mutedGray: "5A6478",
+  dividerGray: "D6DBE6",
+  cardBg: "F3F5FB",
 };
 
 let FONT = "Calibri";
@@ -100,7 +104,7 @@ function applyConfig(cfg?: OutputConfig) {
     sapDarkBlue: palette.dark,
     sapLightBlue: palette.light,
     accentGold: palette.accent,
-    rowAlt: palette.light,
+    rowAlt: "F3F5FB",  // use reference card-bg for all alternating rows
   };
   FONT = cfg?.font ?? "Calibri";
   DENSITY = DENSITY_SETTINGS[cfg?.density ?? "standard"];
@@ -111,38 +115,70 @@ function applyConfig(cfg?: OutputConfig) {
 
 let _slideNumber = 0;
 
-function addSlideHeader(slide: PptxGenJS.Slide, title: string, subtitle?: string) {
-  slide.addShape("rect", { x: 0, y: 0, w: "100%", h: 0.9, fill: { color: COLORS.sapDarkBlue } });
-  slide.addShape("rect", { x: 0, y: 0.9, w: "100%", h: 0.06, fill: { color: COLORS.sapBlue } });
-
-  slide.addText(title, {
-    x: 0.35, y: 0.12, w: 8.5, h: 0.65,
-    fontSize: DENSITY.headerFontSize, bold: true, color: COLORS.white, fontFace: FONT,
+function addSlideHeader(slide: PptxGenJS.Slide, title: string, sectionTag?: string, data?: FormData) {
+  // ── Top nav row: badge · breadcrumb ─────────────────────────────────
+  slide.addShape("roundRect", {
+    x: 0.3, y: 0.10, w: 0.21, h: 0.21,
+    fill: { color: COLORS.sapDarkBlue }, rectRadius: 0.04,
   });
-
-  if (subtitle) {
-    slide.addText(subtitle, {
-      x: 0.35, y: 0.6, w: 8.5, h: 0.35,
-      fontSize: 11, color: COLORS.accentGold, fontFace: FONT, italic: true,
+  const crumb = data ? `${LOGO_TEXT}  ·  ${data.projectName}` : LOGO_TEXT;
+  slide.addText(crumb, {
+    x: 0.62, y: 0.11, w: 10.8, h: 0.19,
+    fontSize: 8.5, color: COLORS.mutedGray, fontFace: FONT,
+  });
+  if (SHOW_SLIDE_NUMBERS) {
+    slide.addText(String(_slideNumber + 1), {
+      x: 12.0, y: 0.11, w: 1.0, h: 0.19,
+      fontSize: 8.5, color: COLORS.mutedGray, fontFace: FONT, align: "right",
     });
   }
+
+  // Thin horizontal divider below nav
+  slide.addShape("rect", {
+    x: 0.3, y: 0.34, w: 12.7, h: 0.005,
+    fill: { color: COLORS.dividerGray },
+  });
+
+  // ── Section tag (small, accent-coloured, uppercase) ──────────────────
+  if (sectionTag) {
+    slide.addText(sectionTag.toUpperCase(), {
+      x: 0.3, y: 0.38, w: 12.5, h: 0.19,
+      fontSize: 8, bold: true, color: COLORS.sapBlue, fontFace: FONT, charSpacing: 2,
+    });
+    slide.addShape("rect", {
+      x: 0.3, y: 0.58, w: 0.52, h: 0.022,
+      fill: { color: COLORS.sapBlue },
+    });
+  }
+
+  // ── Main heading (dark navy, bold, large) ────────────────────────────
+  const headingY = sectionTag ? 0.61 : 0.40;
+  const headingH = sectionTag ? 0.47 : 0.60;
+  slide.addText(title, {
+    x: 0.3, y: headingY, w: 12.7, h: headingH,
+    fontSize: DENSITY.headerFontSize, bold: true, color: COLORS.sapDarkBlue, fontFace: FONT,
+  });
 }
 
 function addSlideFooter(slide: PptxGenJS.Slide, data: FormData) {
   _slideNumber++;
-  slide.addShape("rect", { x: 0, y: 7.2, w: "100%", h: 0.3, fill: { color: COLORS.medGray } });
-  slide.addText(`${data.projectName}  |  v${data.version}  |  Prepared by: ${data.preparedBy}`, {
-    x: 0.3, y: 7.22, w: 7, h: 0.25,
-    fontSize: 8, color: COLORS.textGray, fontFace: FONT,
+  // Thin grey divider
+  slide.addShape("rect", {
+    x: 0.3, y: 7.16, w: 12.7, h: 0.005,
+    fill: { color: COLORS.dividerGray },
   });
-  const rightText = [
-    CONFIDENTIALITY,
-    SHOW_SLIDE_NUMBERS ? `  ${_slideNumber}` : "",
-  ].filter(Boolean).join("  |  ");
-  slide.addText(rightText, {
-    x: 7.0, y: 7.22, w: 2.7, h: 0.25,
-    fontSize: 8, color: COLORS.textGray, fontFace: FONT, align: "right",
+  // Left: project · version · preparer
+  slide.addText(`${data.projectName}  ·  v${data.version}  ·  ${data.preparedBy}`, {
+    x: 0.3, y: 7.22, w: 8.5, h: 0.2,
+    fontSize: 7.5, color: COLORS.mutedGray, fontFace: FONT,
   });
+  // Right: confidentiality
+  if (CONFIDENTIALITY) {
+    slide.addText(CONFIDENTIALITY, {
+      x: 8.8, y: 7.22, w: 4.2, h: 0.2,
+      fontSize: 7.5, color: COLORS.mutedGray, fontFace: FONT, align: "right",
+    });
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -151,47 +187,94 @@ function addSlideFooter(slide: PptxGenJS.Slide, data: FormData) {
 function addTitleSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
 
-  // Full background
+  // Full dark background
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.sapDarkBlue } });
-  slide.addShape("rect", { x: 0, y: 0, w: 0.08, h: "100%", fill: { color: COLORS.sapBlue } });
-  slide.addShape("rect", { x: 0, y: 5.5, w: "100%", h: 2.0, fill: { color: "00213A" } });
 
-  // Logo badge
+  // Thin accent left stripe
+  slide.addShape("rect", { x: 0, y: 0, w: 0.07, h: "100%", fill: { color: COLORS.sapBlue } });
+
+  // Darker bottom band for meta area
+  slide.addShape("rect", { x: 0, y: 5.8, w: "100%", h: 1.7, fill: { color: "061333" } });
+
+  // Top-left: company badge + logo text
+  slide.addShape("roundRect", {
+    x: 0.35, y: 0.28, w: 0.3, h: 0.3,
+    fill: { color: COLORS.sapBlue }, rectRadius: 0.05,
+  });
+  slide.addText(">", {
+    x: 0.35, y: 0.28, w: 0.3, h: 0.3,
+    fontSize: 14, bold: true, color: COLORS.white, fontFace: FONT, align: "center",
+  });
   slide.addText(LOGO_TEXT, {
-    x: 0.4, y: 0.3, w: 2, h: 0.6,
-    fontSize: 36, bold: true, color: COLORS.accentGold, fontFace: FONT,
-  });
-  slide.addText("Solution Architecture", {
-    x: 0.4, y: 0.85, w: 6, h: 0.4,
-    fontSize: 14, color: COLORS.medGray, fontFace: FONT, italic: true,
+    x: 0.76, y: 0.28, w: 3, h: 0.3,
+    fontSize: 16, bold: true, color: COLORS.white, fontFace: FONT,
   });
 
-  // Main title
+  // Top-right: "PREPARED FOR" + client name
+  slide.addText("PREPARED FOR", {
+    x: 8.5, y: 0.28, w: 4.8, h: 0.2,
+    fontSize: 8, color: COLORS.mutedGray, fontFace: FONT, align: "right", charSpacing: 2,
+  });
+  slide.addText(data.client || "—", {
+    x: 8.5, y: 0.48, w: 4.8, h: 0.35,
+    fontSize: 16, bold: true, color: COLORS.white, fontFace: FONT, align: "right",
+  });
+
+  // Thin divider under top nav area
+  slide.addShape("rect", { x: 0.35, y: 0.92, w: 12.6, h: 0.005, fill: { color: COLORS.mutedGray } });
+
+  // Section tag
+  slide.addText("SOLUTION DESIGN & SCOPE", {
+    x: 0.35, y: 1.0, w: 10, h: 0.22,
+    fontSize: 9, bold: true, color: COLORS.sapBlue, fontFace: FONT, charSpacing: 3,
+  });
+
+  // Short accent bar
+  slide.addShape("rect", { x: 0.35, y: 1.24, w: 0.65, h: 0.03, fill: { color: COLORS.sapBlue } });
+
+  // Main project title
   slide.addText(data.projectName || "SAP Implementation Project", {
-    x: 0.4, y: 1.6, w: 9.2, h: 1.4,
-    fontSize: 36, bold: true, color: COLORS.white, fontFace: FONT,
+    x: 0.35, y: 1.30, w: 12.6, h: 1.8,
+    fontSize: 44, bold: true, color: COLORS.white, fontFace: FONT,
   });
 
-  slide.addText("Solution Design & Scope Document", {
-    x: 0.4, y: 3.0, w: 9.2, h: 0.5,
+  // Descriptor
+  slide.addText("Application Management Services", {
+    x: 0.35, y: 3.15, w: 10, h: 0.45,
     fontSize: 16, color: COLORS.accentGold, fontFace: FONT,
   });
 
-  // Products chips
-  const products = data.selectedProducts.slice(0, 6).map(p => p.name).join("   •   ");
+  // Thin accent divider
+  slide.addShape("rect", { x: 0.35, y: 3.66, w: 1.5, h: 0.04, fill: { color: COLORS.sapBlue } });
+
+  // Products line
+  const products = data.selectedProducts.slice(0, 6).map(p => p.name).join("   ·   ");
   slide.addText(products, {
-    x: 0.4, y: 3.7, w: 9.2, h: 0.4,
-    fontSize: 10, color: COLORS.medGray, fontFace: FONT,
+    x: 0.35, y: 3.76, w: 12.6, h: 0.32,
+    fontSize: 10, color: COLORS.mutedGray, fontFace: FONT, charSpacing: 1,
   });
 
-  // Meta info
-  slide.addText(`Client: ${data.client}`, { x: 0.4, y: 5.65, w: 4, h: 0.3, fontSize: 11, color: COLORS.medGray, fontFace: FONT });
-  slide.addText(`Project Manager: ${data.projectManager}`, { x: 0.4, y: 5.95, w: 4, h: 0.3, fontSize: 11, color: COLORS.medGray, fontFace: FONT });
-  slide.addText(`Prepared by: ${data.preparedBy}`, { x: 0.4, y: 6.25, w: 4, h: 0.3, fontSize: 11, color: COLORS.medGray, fontFace: FONT });
-  slide.addText(`Version: ${data.version}`, { x: 5, y: 5.65, w: 4, h: 0.3, fontSize: 11, color: COLORS.medGray, fontFace: FONT });
-
-  const enabledSystems = data.systems.filter(s => s.enabled).map(s => s.name).join("  →  ");
-  slide.addText(`Environments: ${enabledSystems}`, { x: 5, y: 5.95, w: 4.5, h: 0.3, fontSize: 11, color: COLORS.medGray, fontFace: FONT });
+  // Bottom meta section (on darker band)
+  const metas = [
+    { label: "CLIENT",          value: data.client },
+    { label: "PROJECT MANAGER", value: data.projectManager },
+    { label: "PREPARED BY",     value: data.preparedBy },
+    { label: "VERSION",         value: `v${data.version}` },
+  ];
+  metas.forEach((m, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = col === 0 ? 0.35 : 6.0;
+    const y = 5.88 + row * 0.64;
+    slide.addText(m.label, {
+      x, y, w: 5.5, h: 0.22,
+      fontSize: 7.5, color: COLORS.mutedGray, fontFace: FONT, charSpacing: 1,
+    });
+    slide.addText(m.value || "—", {
+      x, y: y + 0.22, w: 5.5, h: 0.28,
+      fontSize: 12, bold: true, color: COLORS.white, fontFace: FONT,
+    });
+  });
 }
 
 // ──────────────────────────────────────────────
@@ -201,7 +284,7 @@ function addProductsSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "SAP Products in Scope", data.projectName);
+  addSlideHeader(slide, "SAP Products in Scope", "Products in Scope", data);
 
   const products = data.selectedProducts;
   const cols = 2;
@@ -248,7 +331,7 @@ function addLandscapeSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "System Landscape", "Deployment Architecture");
+  addSlideHeader(slide, "System Landscape", "Deployment Architecture", data);
 
   const envColors: Record<string, string> = {
     Sandbox: COLORS.teal,
@@ -316,7 +399,7 @@ function addScopeSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "Project Scope", "In-Scope Deliverables");
+  addSlideHeader(slide, "Project Scope", "In-Scope Deliverables", data);
 
   // Two-column layout: In Scope | Out of Scope
   const colW = 4.45;
@@ -367,7 +450,7 @@ function addRACISlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "RACI Matrix", "Roles & Responsibilities");
+  addSlideHeader(slide, "RACI Matrix", "Roles & Responsibilities", data);
 
   // Legend
   const legend = [
@@ -434,7 +517,7 @@ function addDependenciesSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "Dependencies", "Project & Technical Dependencies");
+  addSlideHeader(slide, "Dependencies", "Project & Technical Dependencies", data);
 
   const deps = data.dependencies.filter(Boolean);
   const iconColors = [COLORS.sapBlue, COLORS.orange, COLORS.green, COLORS.purple, COLORS.teal, COLORS.sapDarkBlue];
@@ -469,7 +552,7 @@ function addAssumptionsSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "Assumptions & Constraints", "Project Assumptions");
+  addSlideHeader(slide, "Assumptions & Constraints", "Project Assumptions", data);
 
   const assumptions = data.assumptions.filter(Boolean);
 
@@ -533,7 +616,7 @@ function addResourceLoadingSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "Resource Loading Plan", "Effort Allocation by Phase (%)");
+  addSlideHeader(slide, "Resource Loading Plan", "Effort Allocation by Phase (%)", data);
 
   // ── Column headers ──
   const headers = ["Resource / Role", "Workstream", "Type", ...phases];
@@ -649,7 +732,7 @@ function addTimelineSlide(pptx: PptxGenJS, data: FormData) {
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
 
-  addSlideHeader(slide, "High-Level Timeline", "Project Phases & Milestones");
+  addSlideHeader(slide, "High-Level Timeline", "Project Phases & Milestones", data);
 
   const phases = [
     { name: "Project Preparation", icon: "📋", duration: "Wk 1–2", color: COLORS.teal },
@@ -713,7 +796,7 @@ function addImplementationApproachSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "Implementation Approach", bp.implementationApproach.title);
+  addSlideHeader(slide, "Implementation Approach", bp.implementationApproach.title, data);
 
   const phases = bp.implementationApproach.phases;
   const colCount = Math.min(phases.length, 3);
@@ -767,7 +850,7 @@ function addCriticalSuccessFactorsSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "Critical Success Factors", "Key factors for a successful implementation");
+  addSlideHeader(slide, "Critical Success Factors", "Key factors for a successful implementation", data);
 
   const iconColors = [COLORS.sapBlue, COLORS.green, COLORS.orange, COLORS.purple, COLORS.teal, COLORS.sapDarkBlue, "C0392B"];
   const csf = bp.criticalSuccessFactors.slice(0, 8);
@@ -813,7 +896,7 @@ function addRiskRegisterSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "Risk Register", "Identified Risks & Mitigation Strategies");
+  addSlideHeader(slide, "Risk Register", "Identified Risks & Mitigation Strategies", data);
 
   const impactColors: Record<string, string> = { High: "C0392B", Medium: COLORS.orange, Low: COLORS.green };
   const probColors:   Record<string, string> = { High: "C0392B", Medium: COLORS.orange, Low: COLORS.teal };
@@ -908,7 +991,7 @@ function addServiceCatalogSlide(pptx: PptxGenJS, data: FormData) {
   chunks.forEach((chunk, pageIdx) => {
     const slide = pptx.addSlide();
     slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-    addSlideHeader(slide, "AMS Service Catalog", chunks.length > 1 ? `Service Overview (Page ${pageIdx + 1} of ${chunks.length})` : "Service Overview");
+    addSlideHeader(slide, "AMS Service Catalog", chunks.length > 1 ? `Page ${pageIdx + 1} of ${chunks.length}` : "Service Overview", data);
 
     const tableX = 0.25;
     const headerH = 0.36;
@@ -976,7 +1059,7 @@ function addCommercialShapeSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "Commercial Shape", "Engagement Model & Commercial Terms");
+  addSlideHeader(slide, "Commercial Shape", "Engagement Model & Commercial Terms", data);
 
   const rows: Array<[string, string]> = [
     ["Engagement Model",  c.engagementModel || "—"],
@@ -1029,7 +1112,7 @@ function addClientContextSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "Client Context", "Background & Strategic Context");
+  addSlideHeader(slide, "Client Context", "Background & Strategic Context", data);
 
   // Decorative left bar
   slide.addShape("rect", { x: 0.25, y: 1.05, w: 0.06, h: 5.9, fill: { color: COLORS.accentGold } });
@@ -1070,7 +1153,7 @@ function addAMSSlide(pptx: PptxGenJS, data: FormData) {
 
   const slide = pptx.addSlide();
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: COLORS.white } });
-  addSlideHeader(slide, "AMS Service Overview", "Application Management Services — Service Parameters");
+  addSlideHeader(slide, "AMS Service Overview", "Application Management Services", data);
 
   // ── KPI metric cards row ──────────────────────────
   const kpis: Array<{ label: string; value: string; sub?: string; color: string }> = [
