@@ -3,13 +3,25 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"tsx server/index.ts\" \"vite\"",
+    "dev:ui": "vite",
+    "dev:api": "tsx server/index.ts",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "NODE_ENV=production tsx server/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.6",
+    "docx": "^9.6.1",
+    "express": "^5.2.1",
+    "pptxgenjs": "^4.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "tsx": "^4.22.3",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
