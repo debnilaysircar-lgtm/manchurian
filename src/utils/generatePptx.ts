@@ -1,6 +1,8 @@
 import PptxGenJS from "pptxgenjs";
 import type { SAPProduct } from "../data/sapProducts";
 import type { BestPracticesResponse } from "./fetchBestPractices";
+import type { OutputConfig } from "../types/outputConfig";
+import { THEME_PALETTES, DENSITY_SETTINGS } from "../types/outputConfig";
 
 export interface SystemEnvironment {
   name: string;
@@ -42,10 +44,11 @@ export interface FormData {
   preparedBy: string;
   version: string;
   bestPractices?: BestPracticesResponse;
+  outputConfig?: OutputConfig;
 }
 
-// Brand colors
-const COLORS = {
+// Derived at generation time from OutputConfig
+let COLORS = {
   sapBlue: "0070F2",
   sapDarkBlue: "003D73",
   sapLightBlue: "E8F4FD",
@@ -62,17 +65,39 @@ const COLORS = {
   teal: "0F7B8C",
 };
 
-const FONT = "Calibri";
+let FONT = "Calibri";
+let DENSITY = DENSITY_SETTINGS["standard"];
+let CONFIDENTIALITY = "CONFIDENTIAL";
+let SHOW_SLIDE_NUMBERS = true;
+let LOGO_TEXT = "SAP";
+
+function applyConfig(cfg?: OutputConfig) {
+  const theme = cfg?.theme ?? "sapBlue";
+  const palette = THEME_PALETTES[theme];
+  COLORS = {
+    ...COLORS,
+    sapBlue: palette.primary,
+    sapDarkBlue: palette.dark,
+    sapLightBlue: palette.light,
+    accentGold: palette.accent,
+    rowAlt: palette.light,
+  };
+  FONT = cfg?.font ?? "Calibri";
+  DENSITY = DENSITY_SETTINGS[cfg?.density ?? "standard"];
+  CONFIDENTIALITY = cfg?.confidentialityLabel ?? "CONFIDENTIAL";
+  SHOW_SLIDE_NUMBERS = cfg?.showSlideNumbers ?? true;
+  LOGO_TEXT = cfg?.companyLogoText || "SAP";
+}
+
+let _slideNumber = 0;
 
 function addSlideHeader(slide: PptxGenJS.Slide, title: string, subtitle?: string) {
-  // Header bar
   slide.addShape("rect", { x: 0, y: 0, w: "100%", h: 0.9, fill: { color: COLORS.sapDarkBlue } });
-  // SAP accent stripe
   slide.addShape("rect", { x: 0, y: 0.9, w: "100%", h: 0.06, fill: { color: COLORS.sapBlue } });
 
   slide.addText(title, {
     x: 0.35, y: 0.12, w: 8.5, h: 0.65,
-    fontSize: 22, bold: true, color: COLORS.white, fontFace: FONT,
+    fontSize: DENSITY.headerFontSize, bold: true, color: COLORS.white, fontFace: FONT,
   });
 
   if (subtitle) {
@@ -84,13 +109,18 @@ function addSlideHeader(slide: PptxGenJS.Slide, title: string, subtitle?: string
 }
 
 function addSlideFooter(slide: PptxGenJS.Slide, data: FormData) {
+  _slideNumber++;
   slide.addShape("rect", { x: 0, y: 7.2, w: "100%", h: 0.3, fill: { color: COLORS.medGray } });
   slide.addText(`${data.projectName}  |  v${data.version}  |  Prepared by: ${data.preparedBy}`, {
     x: 0.3, y: 7.22, w: 7, h: 0.25,
     fontSize: 8, color: COLORS.textGray, fontFace: FONT,
   });
-  slide.addText(`CONFIDENTIAL`, {
-    x: 7.8, y: 7.22, w: 2, h: 0.25,
+  const rightText = [
+    CONFIDENTIALITY,
+    SHOW_SLIDE_NUMBERS ? `  ${_slideNumber}` : "",
+  ].filter(Boolean).join("  |  ");
+  slide.addText(rightText, {
+    x: 7.0, y: 7.22, w: 2.7, h: 0.25,
     fontSize: 8, color: COLORS.textGray, fontFace: FONT, align: "right",
   });
 }
@@ -106,8 +136,8 @@ function addTitleSlide(pptx: PptxGenJS, data: FormData) {
   slide.addShape("rect", { x: 0, y: 0, w: 0.08, h: "100%", fill: { color: COLORS.sapBlue } });
   slide.addShape("rect", { x: 0, y: 5.5, w: "100%", h: 2.0, fill: { color: "00213A" } });
 
-  // SAP Logo text
-  slide.addText("SAP", {
+  // Logo badge
+  slide.addText(LOGO_TEXT, {
     x: 0.4, y: 0.3, w: 2, h: 0.6,
     fontSize: 36, bold: true, color: COLORS.accentGold, fontFace: FONT,
   });
@@ -476,7 +506,7 @@ function addResourceLoadingSlide(pptx: PptxGenJS, data: FormData) {
   const phaseW     = (9.5 - roleW - wsW - typeW) / phaseCount;
   const tableX     = 0.25;
   const headerH    = 0.36;
-  const rowH       = 0.34;
+  const rowH       = DENSITY.rowHeight;
   const startY     = 1.05;
   const maxRows    = Math.floor((7.0 - startY - headerH - 0.35) / rowH);
   const visResources = resources.slice(0, maxRows);
@@ -834,6 +864,10 @@ function addRiskRegisterSlide(pptx: PptxGenJS, data: FormData) {
 // Main export function
 // ──────────────────────────────────────────────
 export async function generatePptx(data: FormData): Promise<void> {
+  // Apply output config (theme, font, density, labels)
+  applyConfig(data.outputConfig);
+  _slideNumber = 0;
+
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.title = data.projectName;
@@ -841,21 +875,22 @@ export async function generatePptx(data: FormData): Promise<void> {
   pptx.author = data.preparedBy;
   pptx.company = data.client;
 
-  addTitleSlide(pptx, data);
-  addProductsSlide(pptx, data);
-  addLandscapeSlide(pptx, data);
-  addScopeSlide(pptx, data);
-  addRACISlide(pptx, data);
-  addDependenciesSlide(pptx, data);
-  addAssumptionsSlide(pptx, data);
-  addResourceLoadingSlide(pptx, data);
-  addTimelineSlide(pptx, data);
+  const s = data.outputConfig?.slides;
 
-  // AI-generated best practices slides (only if data available)
+  if (!s || s.title)        addTitleSlide(pptx, data);
+  if (!s || s.products)     addProductsSlide(pptx, data);
+  if (!s || s.landscape)    addLandscapeSlide(pptx, data);
+  if (!s || s.scope)        addScopeSlide(pptx, data);
+  if (!s || s.raci)         addRACISlide(pptx, data);
+  if (!s || s.dependencies) addDependenciesSlide(pptx, data);
+  if (!s || s.assumptions)  addAssumptionsSlide(pptx, data);
+  if (!s || s.resources)    addResourceLoadingSlide(pptx, data);
+  if (!s || s.timeline)     addTimelineSlide(pptx, data);
+
   if (data.bestPractices) {
-    addImplementationApproachSlide(pptx, data);
-    addCriticalSuccessFactorsSlide(pptx, data);
-    addRiskRegisterSlide(pptx, data);
+    if (!s || s.aiApproach) addImplementationApproachSlide(pptx, data);
+    if (!s || s.aiCSF)      addCriticalSuccessFactorsSlide(pptx, data);
+    if (!s || s.aiRisks)    addRiskRegisterSlide(pptx, data);
   }
 
   const filename = `${data.projectName.replace(/\s+/g, "_")}_Solution_Architecture.pptx`;

@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import ProductSearch from "./ProductSearch";
+import ConfigPanel from "./ConfigPanel";
 import type { SAPProduct } from "../data/sapProducts";
 import type { RACIEntry, SystemEnvironment, ResourceEntry } from "../utils/generatePptx";
 import { generatePptx } from "../utils/generatePptx";
 import { generateResourcesFromProducts, PHASE_LABELS } from "../data/resourceMapping";
 import { fetchBestPractices } from "../utils/fetchBestPractices";
 import type { BestPracticesResponse } from "../utils/fetchBestPractices";
+import type { OutputConfig } from "../types/outputConfig";
+import { DEFAULT_CONFIG, THEME_PALETTES } from "../types/outputConfig";
 
 const DEFAULT_SYSTEMS: SystemEnvironment[] = [
   { name: "Sandbox", enabled: false, description: "Exploration & PoC testing" },
@@ -90,6 +93,8 @@ export default function SAPSlideGenerator() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [bestPractices, setBestPractices] = useState<BestPracticesResponse | null>(null);
   const [includeAI, setIncludeAI] = useState(true);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [outputConfig, setOutputConfig] = useState<OutputConfig>(DEFAULT_CONFIG);
 
   const [projectName, setProjectName] = useState("SAP Implementation Project");
   const [client, setClient] = useState("");
@@ -145,7 +150,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -201,15 +206,53 @@ export default function SAPSlideGenerator() {
     resources.reduce((sum, r) => sum + (r.allocations[pi]?.percent ?? 0), 0) / 100
   );
 
+  const activeTheme = THEME_PALETTES[outputConfig.theme];
+  const enabledSlideCount = Object.values(outputConfig.slides).filter(Boolean).length;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
+      {/* Config drawer */}
+      <ConfigPanel
+        open={configOpen}
+        config={outputConfig}
+        onChange={cfg => {
+          setOutputConfig(cfg);
+          // If AI slides are disabled, sync includeAI toggle
+          if (!cfg.slides.aiApproach && !cfg.slides.aiCSF && !cfg.slides.aiRisks) {
+            setIncludeAI(false);
+          }
+        }}
+        onClose={() => setConfigOpen(false)}
+      />
+
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-900 to-blue-800 border-b border-blue-700 shadow-lg">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
-          <div className="bg-amber-400 text-blue-900 font-black text-xl px-3 py-1 rounded">SAP</div>
-          <div>
+          <div className="bg-amber-400 text-blue-900 font-black text-xl px-3 py-1 rounded">
+            {outputConfig.companyLogoText || "SAP"}
+          </div>
+          <div className="flex-1">
             <h1 className="text-white font-bold text-xl">Solution Slide Generator</h1>
             <p className="text-blue-300 text-sm">Generate professional SAP implementation architecture decks</p>
+          </div>
+          {/* Config indicator + button */}
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
+              <span
+                className="w-3 h-3 rounded-full flex-shrink-0"
+                style={{ background: activeTheme.preview }}
+              />
+              <span className="text-white text-xs font-medium">{activeTheme.label}</span>
+              <span className="text-blue-300 text-xs">·</span>
+              <span className="text-blue-200 text-xs">{enabledSlideCount} slides</span>
+            </div>
+            <button
+              onClick={() => setConfigOpen(true)}
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              <span>⚙</span>
+              <span>Configure</span>
+            </button>
           </div>
         </div>
       </div>
@@ -575,7 +618,16 @@ export default function SAPSlideGenerator() {
                       </p>
                     </div>
                     <button
-                      onClick={() => { setIncludeAI(v => !v); setBestPractices(null); setAiError(null); }}
+                      onClick={() => {
+                        const next = !includeAI;
+                        setIncludeAI(next);
+                        setBestPractices(null);
+                        setAiError(null);
+                        setOutputConfig(c => ({
+                          ...c,
+                          slides: { ...c.slides, aiApproach: next, aiCSF: next, aiRisks: next },
+                        }));
+                      }}
                       className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-colors ${
                         includeAI ? "bg-amber-500 border-amber-500 text-white" : "bg-white border-amber-300 text-amber-700 hover:bg-amber-50"
                       }`}>
