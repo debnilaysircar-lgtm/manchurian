@@ -5,6 +5,7 @@ import type { OutputConfig } from "../types/outputConfig";
 import { THEME_PALETTES, DENSITY_SETTINGS } from "../types/outputConfig";
 import type { AMSData } from "../types/amsData";
 import type { ServiceCatalogEntry } from "../types/serviceCatalog";
+import { AMS_ARCHITECTURE } from "../data/amsArchitectureData";
 
 export interface SystemEnvironment {
   name: string;
@@ -51,6 +52,8 @@ export interface FormData {
   clientContext?: string;
   serviceCatalog?: ServiceCatalogEntry[];
   commercialShape?: CommercialShape;
+  selectedCapabilities?: Set<string>;
+  outOfScopeGaps?: Set<string>;
 }
 
 export interface CommercialShape {
@@ -423,15 +426,16 @@ function addScopeSlide(pptx: PptxGenJS, data: FormData) {
     slide.addText(`${i + 1}.  ${item}`, { x: 0.4, y: y + 0.04, w: colW - 0.2, h: 0.28, fontSize: 9.5, color: COLORS.darkGray, fontFace: FONT });
   });
 
-  // Auto-generated out-of-scope (non-selected SAP products)
-  const outItems = [
-    "Custom development beyond agreed specifications",
-    "Data migration from non-SAP legacy systems",
-    "Third-party integrations not listed in scope",
-    "End-user hardware provisioning",
-    "Production support post go-live (unless contracted)",
-    "Regulatory compliance advisory services",
-  ];
+  const outItems: string[] = data.outOfScopeGaps?.size
+    ? Array.from(data.outOfScopeGaps).slice(0, 14)
+    : [
+      "Custom development beyond agreed specifications",
+      "Data migration from non-SAP legacy systems",
+      "Third-party integrations not listed in scope",
+      "End-user hardware provisioning",
+      "Production support post go-live (unless contracted)",
+      "Regulatory compliance advisory services",
+    ];
   outItems.forEach((item, i) => {
     const y = colY + 0.44 + i * 0.38;
     if (y > 6.8) return;
@@ -1284,6 +1288,129 @@ function addAMSSlide(pptx: PptxGenJS, data: FormData) {
 }
 
 // ──────────────────────────────────────────────
+// Dark-slide footer (for domain view slides)
+// ──────────────────────────────────────────────
+function addDarkSlideFooter(slide: PptxGenJS.Slide, data: FormData) {
+  _slideNumber++;
+  slide.addShape("rect", { x: 0.3, y: 7.16, w: 12.7, h: 0.005, fill: { color: "30363D" } });
+  slide.addText(`${data.projectName}  ·  v${data.version}  ·  ${data.preparedBy}`, {
+    x: 0.3, y: 7.22, w: 8.5, h: 0.2,
+    fontSize: 7.5, color: "7D8590", fontFace: FONT,
+  });
+  if (SHOW_SLIDE_NUMBERS) {
+    slide.addText(String(_slideNumber), {
+      x: 12.0, y: 7.22, w: 1.0, h: 0.2,
+      fontSize: 7.5, color: "7D8590", fontFace: FONT, align: "right",
+    });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Capability Domain View Slides (dark, reference-style)
+// One slide per AMS section that has selected capabilities
+// ──────────────────────────────────────────────
+function nodeLeafTexts(node: { text: string; children?: { text: string; children?: unknown[] }[] }): string[] {
+  if (!node.children?.length) return [node.text];
+  return node.children.flatMap(c => nodeLeafTexts(c as typeof node));
+}
+
+function addCapabilityDomainSlides(pptx: PptxGenJS, data: FormData) {
+  const caps = data.selectedCapabilities!;
+  const hex = (c: string) => c.replace("#", "");
+
+  AMS_ARCHITECTURE.forEach((sec, secIdx) => {
+    const secLeaves = sec.tree.flatMap(n => nodeLeafTexts(n));
+    const selected = secLeaves.filter(t => caps.has(t));
+    if (selected.length === 0) return;
+
+    const slide = pptx.addSlide();
+
+    // Full dark background
+    slide.addShape("rect", { x: 0, y: 0, w: "100%", h: "100%", fill: { color: "0D1117" } });
+
+    // Blue accent strip at top
+    slide.addShape("rect", { x: 0, y: 0, w: "100%", h: 0.08, fill: { color: "4C8DFF" } });
+
+    // Section number box
+    slide.addShape("roundRect", {
+      x: 0.28, y: 0.18, w: 0.52, h: 0.52,
+      fill: { color: "1E2A3A" }, rectRadius: 0.07,
+    });
+    slide.addText(String(secIdx + 1).padStart(2, "0"), {
+      x: 0.28, y: 0.18, w: 0.52, h: 0.52,
+      fontSize: 18, bold: true, color: "4C8DFF", fontFace: FONT, align: "center",
+    });
+
+    // Domain name
+    slide.addText(sec.section, {
+      x: 0.94, y: 0.18, w: 8.5, h: 0.34,
+      fontSize: 22, bold: true, color: "E6EDF3", fontFace: FONT,
+    });
+
+    // Subtitle
+    slide.addText("SAP AMS Architecture · Capabilities in Scope", {
+      x: 0.94, y: 0.52, w: 8.5, h: 0.2,
+      fontSize: 9, color: "7D8590", fontFace: FONT,
+    });
+
+    // Right: selected / total badge
+    slide.addShape("roundRect", {
+      x: 10.2, y: 0.22, w: 3.0, h: 0.44,
+      fill: { color: hex(sec.color) + "22" }, rectRadius: 0.07,
+    });
+    slide.addText(`${selected.length} / ${secLeaves.length} selected`, {
+      x: 10.2, y: 0.22, w: 3.0, h: 0.44,
+      fontSize: 9, bold: true, color: hex(sec.color), fontFace: FONT, align: "center",
+    });
+
+    // Colour divider under header
+    slide.addShape("rect", {
+      x: 0.28, y: 0.82, w: 12.7, h: 0.025,
+      fill: { color: hex(sec.color) },
+    });
+
+    // Two-column capability list
+    const cellH = 0.27;
+    const gapH  = 0.035;
+    const startY = 0.95;
+    const colW  = 6.05;
+    const col2X = 0.28 + colW + 0.22;
+    const maxPerCol = Math.floor((7.1 - startY) / (cellH + gapH));
+
+    selected.slice(0, maxPerCol * 2).forEach((cap, i) => {
+      const col    = i < maxPerCol ? 0 : 1;
+      const rowIdx = i < maxPerCol ? i : i - maxPerCol;
+      const x = col === 0 ? 0.28 : col2X;
+      const y = startY + rowIdx * (cellH + gapH);
+      const bg = rowIdx % 2 === 0 ? "141C25" : "1A2332";
+
+      slide.addShape("roundRect", { x, y, w: colW, h: cellH, fill: { color: bg }, rectRadius: 0.04 });
+
+      // Dot accent
+      slide.addShape("ellipse", {
+        x: x + 0.1, y: y + (cellH - 0.1) / 2,
+        w: 0.1, h: 0.1,
+        fill: { color: hex(sec.color) },
+      });
+
+      slide.addText(cap, {
+        x: x + 0.28, y: y + 0.035, w: colW - 0.36, h: cellH - 0.07,
+        fontSize: 8, color: "C9D1D9", fontFace: FONT,
+      });
+    });
+
+    if (selected.length > maxPerCol * 2) {
+      slide.addText(`+${selected.length - maxPerCol * 2} more…`, {
+        x: 0.28, y: 7.08, w: 6, h: 0.18,
+        fontSize: 7.5, color: "7D8590", fontFace: FONT, italic: true,
+      });
+    }
+
+    addDarkSlideFooter(slide, data);
+  });
+}
+
+// ──────────────────────────────────────────────
 // Main export function
 // ──────────────────────────────────────────────
 export async function generatePptx(data: FormData): Promise<void> {
@@ -1305,6 +1432,7 @@ export async function generatePptx(data: FormData): Promise<void> {
   if (data.clientContext?.trim() && (!s || s.clientContext)) addClientContextSlide(pptx, data);
   if (!s || s.landscape)    addLandscapeSlide(pptx, data);
   if (!s || s.scope)        addScopeSlide(pptx, data);
+  if (data.selectedCapabilities?.size) addCapabilityDomainSlides(pptx, data);
   if (!s || s.raci)         addRACISlide(pptx, data);
   if (!s || s.dependencies) addDependenciesSlide(pptx, data);
   if (!s || s.assumptions)  addAssumptionsSlide(pptx, data);

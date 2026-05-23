@@ -228,7 +228,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: outOfScopeGaps.size ? outOfScopeGaps : undefined };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
