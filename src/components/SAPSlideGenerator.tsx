@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import ProductSearch from "./ProductSearch";
 import ConfigPanel from "./ConfigPanel";
+import CapabilitiesPicker from "./CapabilitiesPicker";
+import GapPicker from "./GapPicker";
 import type { SAPProduct } from "../data/sapProducts";
 import type { RACIEntry, SystemEnvironment, ResourceEntry } from "../utils/generatePptx";
 import { generatePptx } from "../utils/generatePptx";
@@ -68,20 +70,21 @@ const DEFAULT_ASSUMPTIONS = [
   "Business sign-off on design documents will be completed within 5 business days",
 ];
 
-type Step = "basics" | "products" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "catalog" | "commercial" | "review";
+type Step = "basics" | "products" | "capabilities" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "catalog" | "commercial" | "review";
 const STEPS: { key: Step; label: string; icon: string }[] = [
-  { key: "basics",       label: "Project Info",  icon: "📁" },
-  { key: "products",     label: "SAP Products",  icon: "🔧" },
-  { key: "systems",      label: "Systems",        icon: "🖥️" },
-  { key: "scope",        label: "Scope",          icon: "📋" },
-  { key: "raci",         label: "RACI",           icon: "👥" },
-  { key: "dependencies", label: "Dependencies",   icon: "🔗" },
-  { key: "assumptions",  label: "Assumptions",    icon: "💡" },
-  { key: "resources",    label: "Resources",      icon: "📊" },
-  { key: "ams",          label: "AMS",            icon: "🛎️" },
-  { key: "catalog",      label: "Catalog",        icon: "📂" },
-  { key: "commercial",   label: "Commercial",     icon: "💰" },
-  { key: "review",       label: "Generate",       icon: "⬇️" },
+  { key: "basics",        label: "Project Info",   icon: "📁" },
+  { key: "products",      label: "SAP Products",   icon: "🔧" },
+  { key: "capabilities",  label: "Capabilities",   icon: "🏗️" },
+  { key: "systems",       label: "Systems",         icon: "🖥️" },
+  { key: "scope",         label: "Scope",           icon: "📋" },
+  { key: "raci",          label: "RACI",            icon: "👥" },
+  { key: "dependencies",  label: "Dependencies",    icon: "🔗" },
+  { key: "assumptions",   label: "Assumptions",     icon: "💡" },
+  { key: "resources",     label: "Resources",       icon: "📊" },
+  { key: "ams",           label: "AMS",             icon: "🛎️" },
+  { key: "catalog",       label: "Catalog",         icon: "📂" },
+  { key: "commercial",    label: "Commercial",      icon: "💰" },
+  { key: "review",        label: "Generate",        icon: "⬇️" },
 ];
 
 // Shared auto-generate banner used on scope/RACI/deps/assumptions steps
@@ -169,6 +172,8 @@ export default function SAPSlideGenerator() {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [fetchingResources, setFetchingResources] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
+  const [selectedCapabilities, setSelectedCapabilities] = useState<Set<string>>(new Set());
+  const [outOfScopeGaps, setOutOfScopeGaps] = useState<Set<string>>(new Set());
   const [commercialShape, setCommercialShape] = useState<CommercialShape>({
     engagementModel: "Fixed Price",
     currency: "USD",
@@ -495,6 +500,27 @@ export default function SAPSlideGenerator() {
               </div>
             )}
 
+            {/* ── CAPABILITIES ── */}
+            {step === "capabilities" && (
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">AMS Architecture Capabilities</h3>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Select which SAP AMS capabilities are in scope, organised across SAP Basis, Security, and Solution Manager / Cloud ALM domains. Selected items feed into the Capabilities slide in the output deck.
+                  </p>
+                </div>
+                {selectedProducts.length === 0 && (
+                  <p className="text-amber-600 text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    ⚠ Return to SAP Products step and select at least one product first.
+                  </p>
+                )}
+                <CapabilitiesPicker
+                  selected={selectedCapabilities}
+                  onChange={setSelectedCapabilities}
+                />
+              </div>
+            )}
+
             {/* ── SYSTEMS ── */}
             {step === "systems" && (
               <div>
@@ -521,7 +547,7 @@ export default function SAPSlideGenerator() {
 
             {/* ── SCOPE ── */}
             {step === "scope" && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <AutoGenBanner
                   ready={selectedProducts.length > 0}
                   loading={autoGenerating}
@@ -529,18 +555,44 @@ export default function SAPSlideGenerator() {
                   onGenerate={handleAutoGenerate}
                   label="Auto-generate scope from selected SAP products"
                 />
-                <p className="text-sm text-gray-600">Define in-scope deliverables.</p>
-                {scopeItems.map((item, i) => (
-                  <div key={i} className="flex gap-2 items-center">
-                    <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
-                    <input value={item} onChange={e => updateListItem(scopeItems, setScopeItems, i, e.target.value)}
-                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
-                    <button onClick={() => removeListItem(scopeItems, setScopeItems, i)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+
+                {/* In Scope */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                    <h4 className="text-sm font-bold text-gray-800">In Scope</h4>
+                    {selectedCapabilities.size > 0 && (
+                      <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                        +{selectedCapabilities.size} capabilities selected on Capabilities step
+                      </span>
+                    )}
                   </div>
-                ))}
-                <button onClick={() => addListItem(scopeItems, setScopeItems)} className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
-                  <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add scope item
-                </button>
+                  {scopeItems.map((item, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                      <input value={item} onChange={e => updateListItem(scopeItems, setScopeItems, i, e.target.value)}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                      <button onClick={() => removeListItem(scopeItems, setScopeItems, i)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+                    </div>
+                  ))}
+                  <button onClick={() => addListItem(scopeItems, setScopeItems)} className="flex items-center gap-2 text-blue-600 text-sm font-medium hover:text-blue-800">
+                    <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">+</span>Add scope item
+                  </button>
+                </div>
+
+                {/* Out of Scope — Gap Architecture Picker */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+                    <h4 className="text-sm font-bold text-gray-800">Out of Scope</h4>
+                    {outOfScopeGaps.size > 0 && (
+                      <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full font-medium">
+                        {outOfScopeGaps.size} gap items selected
+                      </span>
+                    )}
+                  </div>
+                  <GapPicker selected={outOfScopeGaps} onChange={setOutOfScopeGaps} />
+                </div>
               </div>
             )}
 
