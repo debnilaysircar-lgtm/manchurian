@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ProductSearch from "./ProductSearch";
 import ConfigPanel from "./ConfigPanel";
 import CapabilitiesPicker from "./CapabilitiesPicker";
@@ -19,6 +19,7 @@ import type { OutputConfig } from "../types/outputConfig";
 import { DEFAULT_CONFIG, THEME_PALETTES } from "../types/outputConfig";
 import type { AMSData } from "../types/amsData";
 import { DEFAULT_AMS } from "../types/amsData";
+import { AMS_ARCHITECTURE } from "../data/amsArchitectureData";
 
 const DEFAULT_SYSTEMS: SystemEnvironment[] = [
   { name: "Sandbox", enabled: false, description: "Exploration & PoC testing" },
@@ -172,8 +173,27 @@ export default function SAPSlideGenerator() {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [fetchingResources, setFetchingResources] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
-  const [selectedCapabilities, setSelectedCapabilities] = useState<Set<string>>(new Set());
+  // Per-product capability selections: productId → Set<capabilityLeafText>
+  const [capsByProduct, setCapsByProduct] = useState<Map<string, Set<string>>>(new Map());
   const [outOfScopeGaps, setOutOfScopeGaps] = useState<Set<string>>(new Set());
+
+  // Union of all selected capabilities (for domain slides)
+  const selectedCapabilities = useMemo(() => {
+    const union = new Set<string>();
+    capsByProduct.forEach(caps => caps.forEach(t => union.add(t)));
+    return union;
+  }, [capsByProduct]);
+
+  // AMS capabilities NOT selected in any product → auto out-of-scope
+  const autoOutOfScope = useMemo(() => {
+    if (selectedCapabilities.size === 0) return new Set<string>();
+    const allLeaves = AMS_ARCHITECTURE.flatMap(s =>
+      s.tree.flatMap(function walk(n: { text: string; children?: typeof n[] }): string[] {
+        return n.children?.length ? n.children.flatMap(walk) : [n.text];
+      })
+    );
+    return new Set(allLeaves.filter(t => !selectedCapabilities.has(t)));
+  }, [selectedCapabilities]);
   const [commercialShape, setCommercialShape] = useState<CommercialShape>({
     engagementModel: "Fixed Price",
     currency: "USD",
@@ -228,7 +248,9 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: outOfScopeGaps.size ? outOfScopeGaps : undefined };
+      // Merge auto-derived (unselected AMS caps) with manually selected EMEA gap items
+      const mergedOutOfScope = new Set([...autoOutOfScope, ...outOfScopeGaps]);
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: mergedOutOfScope.size ? mergedOutOfScope : undefined };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -506,17 +528,13 @@ export default function SAPSlideGenerator() {
                 <div>
                   <h3 className="text-base font-bold text-gray-900">AMS Architecture Capabilities</h3>
                   <p className="text-sm text-gray-500 mt-0.5">
-                    Select which SAP AMS capabilities are in scope, organised across SAP Basis, Security, and Solution Manager / Cloud ALM domains. Selected items feed into the Capabilities slide in the output deck.
+                    For each product, select which SAP AMS capabilities are in scope. Capabilities not selected for any product are automatically added to out-of-scope.
                   </p>
                 </div>
-                {selectedProducts.length === 0 && (
-                  <p className="text-amber-600 text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    ⚠ Return to SAP Products step and select at least one product first.
-                  </p>
-                )}
                 <CapabilitiesPicker
-                  selected={selectedCapabilities}
-                  onChange={setSelectedCapabilities}
+                  products={selectedProducts}
+                  selected={capsByProduct}
+                  onChange={setCapsByProduct}
                 />
               </div>
             )}
@@ -558,12 +576,12 @@ export default function SAPSlideGenerator() {
 
                 {/* In Scope */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
                     <h4 className="text-sm font-bold text-gray-800">In Scope</h4>
                     {selectedCapabilities.size > 0 && (
                       <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
-                        +{selectedCapabilities.size} capabilities selected on Capabilities step
+                        +{selectedCapabilities.size} AMS capabilities selected
                       </span>
                     )}
                   </div>
@@ -582,12 +600,17 @@ export default function SAPSlideGenerator() {
 
                 {/* Out of Scope — Gap Architecture Picker */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                     <h4 className="text-sm font-bold text-gray-800">Out of Scope</h4>
+                    {autoOutOfScope.size > 0 && (
+                      <span className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
+                        {autoOutOfScope.size} auto (unselected AMS capabilities)
+                      </span>
+                    )}
                     {outOfScopeGaps.size > 0 && (
                       <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full font-medium">
-                        {outOfScopeGaps.size} gap items selected
+                        +{outOfScopeGaps.size} EMEA gap items
                       </span>
                     )}
                   </div>
