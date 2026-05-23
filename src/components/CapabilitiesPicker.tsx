@@ -27,7 +27,7 @@ function TreeNode({
   const isLeaf = !node.children?.length;
   const allChecked = leaves.every(t => selected.has(t));
   const someChecked = !allChecked && leaves.some(t => selected.has(t));
-  const [open, setOpen] = useState(depth < 1);
+  const [open, setOpen] = useState(depth < 2);
 
   const q = searchQ.toLowerCase();
   const matchesDescendant = q
@@ -274,7 +274,7 @@ export default function CapabilitiesPicker({ products, selected, onChange }: Pro
       </div>
 
       {/* Tree */}
-      <div className="border border-gray-200 rounded-xl bg-white overflow-y-auto" style={{ maxHeight: "380px" }}>
+      <div className="border border-gray-200 rounded-xl bg-white overflow-y-auto" style={{ maxHeight: "560px" }}>
         <div
           className="px-3 py-2 text-xs font-bold uppercase tracking-wider border-b border-gray-100 flex items-center gap-2"
           style={{ color: activeSec.color }}

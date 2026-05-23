@@ -88,13 +88,13 @@ export default function ProductSearch({ selected, onChange }: Props) {
 
         {open && (
           <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
-            {/* Category filter */}
-            <div className="flex gap-1 p-2 bg-gray-50 border-b border-gray-100 flex-wrap">
+            {/* Category filter — single scrollable row */}
+            <div className="flex gap-1 p-2 bg-gray-50 border-b border-gray-100 overflow-x-auto flex-nowrap">
               {categories.map(cat => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
+                  className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                     activeCategory === cat
                       ? "bg-blue-600 text-white"
                       : "bg-white text-gray-600 border border-gray-200 hover:bg-blue-50"
@@ -105,7 +105,7 @@ export default function ProductSearch({ selected, onChange }: Props) {
               ))}
             </div>
 
-            <div className="max-h-64 overflow-y-auto">
+            <div className="max-h-80 overflow-y-auto">
               {results.length === 0 ? (
                 <div className="p-4 text-center text-gray-500 text-sm">No products found</div>
               ) : (
