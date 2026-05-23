@@ -184,17 +184,6 @@ export default function SAPSlideGenerator() {
     return union;
   }, [capsByProduct]);
 
-  // AMS capabilities NOT selected in any product → auto out-of-scope
-  const autoOutOfScope = useMemo(() => {
-    if (selectedCapabilities.size === 0) return new Set<string>();
-    const allLeaves = AMS_ARCHITECTURE.flatMap(s =>
-      s.tree.flatMap(function walk(n: { text: string; children?: typeof n[] }): string[] {
-        return n.children?.length ? n.children.flatMap(walk) : [n.text];
-      })
-    );
-    return new Set(allLeaves.filter(t => !selectedCapabilities.has(t)));
-  }, [selectedCapabilities]);
-
   // Which AMS domains have at least one capability selected (drives resource rows)
   const capDomains = useMemo(() => {
     function walk(n: { text: string; children?: typeof n[] }): string[] {
@@ -263,9 +252,7 @@ export default function SAPSlideGenerator() {
           setFetchingAI(false);
         }
       }
-      // Merge auto-derived (unselected AMS caps) with manually selected EMEA gap items
-      const mergedOutOfScope = new Set([...autoOutOfScope, ...outOfScopeGaps]);
-      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: mergedOutOfScope.size ? mergedOutOfScope : undefined };
+      const formData = { projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, bestPractices: bp ?? undefined, outputConfig, amsData, clientContext, serviceCatalog: serviceCatalog.length ? serviceCatalog : undefined, commercialShape, selectedCapabilities: selectedCapabilities.size ? selectedCapabilities : undefined, outOfScopeGaps: outOfScopeGaps.size ? outOfScopeGaps : undefined };
       await generatePptx(formData);
       setGenerated(true);
     } catch (err) {
@@ -618,14 +605,9 @@ export default function SAPSlideGenerator() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                     <h4 className="text-sm font-bold text-gray-800">Out of Scope</h4>
-                    {autoOutOfScope.size > 0 && (
-                      <span className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
-                        {autoOutOfScope.size} auto (unselected AMS capabilities)
-                      </span>
-                    )}
                     {outOfScopeGaps.size > 0 && (
                       <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full font-medium">
-                        +{outOfScopeGaps.size} EMEA gap items
+                        {outOfScopeGaps.size} gap items selected
                       </span>
                     )}
                   </div>
