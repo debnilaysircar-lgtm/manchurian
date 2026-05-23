@@ -1,12 +1,12 @@
 import express from "express";
 import cors from "cors";
-import Anthropic from "@anthropic-ai/sdk";
+// import Anthropic from "@anthropic-ai/sdk";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 interface BestPracticesRequest {
   products: string[];
@@ -39,70 +39,58 @@ app.post("/api/best-practices", async (req, res) => {
   const productList = products.join(", ");
   const project = projectName || "SAP Implementation";
 
-  const prompt = `You are a senior SAP implementation consultant with 20+ years of experience.
-A client is implementing the following SAP products: ${productList}.
-Project name: ${project}
+  // ── STUB (AI call commented out) ──────────────────────────────────────────
+  // const prompt = `... (original prompt omitted) ...`;
+  // const message = await client.messages.create({
+  //   model: "claude-opus-4-7",
+  //   max_tokens: 4000,
+  //   thinking: { type: "adaptive" },
+  //   messages: [{ role: "user", content: prompt }],
+  // });
+  // const textBlock = message.content.find(b => b.type === "text");
+  // const parsed: BestPracticesResponse = JSON.parse(...);
+  // res.json(parsed);
 
-Provide a best-in-class solution plan in strict JSON format (no markdown, no code fences, just raw JSON).
-The JSON must match this exact structure:
+  const stub: BestPracticesResponse = {
+    implementationApproach: {
+      title: `SAP Activate-based implementation for ${productList} — ${project}`,
+      phases: [
+        { phase: "Prepare", activities: ["Project kick-off & governance setup", "System landscape design", "Activate roadmap confirmation"] },
+        { phase: "Explore", activities: ["Fit-to-standard workshops", "Gap analysis & backlog creation", "Data migration strategy"] },
+        { phase: "Realize", activities: ["Configuration & development sprints", "Integration build & unit testing", "Data migration dry runs"] },
+        { phase: "Deploy", activities: ["User acceptance testing", "Cutover planning & rehearsal", "End-user training delivery"] },
+        { phase: "Run", activities: ["Hypercare support", "Performance monitoring", "Handover to AMS"] },
+      ],
+    },
+    criticalSuccessFactors: [
+      { factor: "Executive Sponsorship", description: "Active C-level ownership to drive change and resolve escalations." },
+      { factor: "Fit-to-Standard Adoption", description: "Minimise custom development by adopting SAP best-practice processes." },
+      { factor: "Data Quality", description: "Early data cleanse to ensure clean migration and system integrity." },
+      { factor: "Change Management", description: "Structured OCM programme to maximise user adoption at go-live." },
+      { factor: "Skilled Team", description: "Retain certified product consultants throughout the project lifecycle." },
+    ],
+    riskRegister: [
+      { risk: "Scope creep due to stakeholder change requests", impact: "High", probability: "High", mitigation: "Enforce change control board with formal approval process." },
+      { risk: "Data migration quality issues", impact: "High", probability: "Medium", mitigation: "Iterative dry runs and automated validation rules." },
+      { risk: "Integration failures with legacy systems", impact: "High", probability: "Medium", mitigation: "Early integration testing and dedicated middleware team." },
+      { risk: "Low end-user adoption post go-live", impact: "Medium", probability: "Medium", mitigation: "Role-based training and super-user network programme." },
+      { risk: "Resource attrition during realization", impact: "Medium", probability: "Low", mitigation: "Knowledge transfer sessions and documentation standards." },
+    ],
+    integrationBestPractices: [
+      "Use SAP Integration Suite as the central middleware for all product integrations.",
+      "Adopt pre-built iFlows from SAP Business Accelerator Hub where available.",
+      "Implement API-first design with versioned endpoints for all custom interfaces.",
+      "Establish an integration governance council to manage changes across product boundaries.",
+    ],
+    keyRecommendations: [
+      `Adopt SAP Activate methodology for ${productList} to benefit from pre-built content.`,
+      "Prioritise clean-core architecture — avoid modifications in favour of side-by-side extensions.",
+      "Invest in a hypercare period of at least 8 weeks post go-live.",
+      "Establish a Centre of Excellence (CoE) to sustain and evolve the solution long-term.",
+    ],
+  };
 
-{
-  "implementationApproach": {
-    "title": "string describing the overall approach",
-    "phases": [
-      { "phase": "phase name", "activities": ["activity1", "activity2", "activity3"] }
-    ]
-  },
-  "criticalSuccessFactors": [
-    { "factor": "short factor name", "description": "one sentence explanation" }
-  ],
-  "riskRegister": [
-    {
-      "risk": "risk description",
-      "impact": "High|Medium|Low",
-      "probability": "High|Medium|Low",
-      "mitigation": "mitigation strategy"
-    }
-  ],
-  "integrationBestPractices": ["best practice 1", "best practice 2"],
-  "keyRecommendations": ["recommendation 1", "recommendation 2"]
-}
-
-Guidelines:
-- implementationApproach.phases: include 5-6 phases (Prepare, Explore, Realize, Deploy, Run + any product-specific phases), each with 3-5 activities specific to the selected products
-- criticalSuccessFactors: 5-7 factors specific to this product combination
-- riskRegister: 5-7 risks specific to these products with realistic mitigations
-- integrationBestPractices: 4-6 best practices for integrating these products together
-- keyRecommendations: 4-5 concise strategic recommendations
-- Be specific to the selected products — not generic SAP advice
-- Base on SAP Activate methodology and current best practices
-
-Return only raw JSON, nothing else.`;
-
-  try {
-    const message = await client.messages.create({
-      model: "claude-opus-4-7",
-      max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textBlock = message.content.find(b => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return res.status(500).json({ error: "No text response from AI" });
-    }
-
-    const raw = textBlock.text.trim();
-    const jsonStart = raw.indexOf("{");
-    const jsonEnd = raw.lastIndexOf("}");
-    const jsonStr = jsonStart >= 0 ? raw.slice(jsonStart, jsonEnd + 1) : raw;
-
-    const parsed: BestPracticesResponse = JSON.parse(jsonStr);
-    res.json(parsed);
-  } catch (err) {
-    console.error("Error calling Claude API:", err);
-    res.status(500).json({ error: String(err) });
-  }
+  res.json(stub);
 });
 
 // ── /api/auto-generate ─────────────────────────────────────────────────────
@@ -140,76 +128,69 @@ app.post("/api/auto-generate", async (req, res) => {
     return res.status(400).json({ error: "products array is required" });
   }
 
-  const toneGuide =
-    tone === "technical"  ? "Use precise, technical implementation language."
-    : tone === "concise"  ? "Be very brief. Short bullet-point style sentences."
-    : "Use professional, business-outcome focused language suitable for executive review.";
+  const productList = products.join(", ");
+  const project = projectName || "SAP Implementation";
 
-  const context = clientContext?.trim()
-    ? `\n\nAdditional client context provided:\n${clientContext}`
-    : "";
+  // ── STUB (AI call commented out) ──────────────────────────────────────────
+  // const message = await client.messages.create({ ... });
+  // const parsed: AutoGenerateResponse = JSON.parse(extractJson(textBlock.text));
+  // res.json(parsed);
 
-  const prompt = `You are a senior SAP implementation consultant.
-Project: ${projectName || "SAP Implementation"}
-SAP Products in scope: ${products.join(", ")}${context}
+  const stub: AutoGenerateResponse = {
+    scopeItems: [
+      `${productList} system configuration and unit testing`,
+      "Business process design workshops (fit-to-standard)",
+      "Data migration — master data and open items",
+      "Integration design and build for connected systems",
+      "Role-based security design and authorisations",
+      "End-to-end integration testing (SIT & UAT)",
+      "Cutover planning and execution support",
+      "End-user training material development and delivery",
+      "Hypercare support (8 weeks post go-live)",
+      "Solution documentation and knowledge transfer",
+    ],
+    outOfScope: [
+      "Legacy system decommissioning and data archival",
+      "Third-party application licensing and vendor management",
+      "Custom BI/reporting beyond standard SAP Analytics",
+      "Infrastructure procurement and cloud hosting",
+      "Post-hypercare BAU support (covered by AMS contract)",
+    ],
+    raciEntries: [
+      { activity: "Project Governance & Steering", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "Solution Architecture Design", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "System Configuration", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "Data Migration Execution", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "Integration Build & Testing", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "User Acceptance Testing", responsible: "C", accountable: "A", consulted: "R", informed: "I" },
+      { activity: "Change Management & Training", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "Cutover Execution", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+      { activity: "Go-Live Sign-Off", responsible: "C", accountable: "A", consulted: "R", informed: "I" },
+      { activity: "Hypercare Support", responsible: "R", accountable: "A", consulted: "C", informed: "I" },
+    ],
+    dependencies: [
+      `${productList} licences procured and activated prior to Realise phase`,
+      "SAP BTP tenant provisioned for integration and extensibility services",
+      "Network connectivity and firewall rules confirmed for system landscape",
+      "Source system data extracts available by start of Realise phase",
+      "Client IT team available for infrastructure and basis co-ordination",
+      "Business process owners allocated at 50%+ for workshop participation",
+      "Third-party system APIs documented and accessible for integration design",
+      "Security and compliance requirements confirmed before role design begins",
+    ],
+    assumptions: [
+      "Client will provide dedicated business process owners for each workstream",
+      `Standard ${productList} best-practice processes will be adopted where possible`,
+      "A single production go-live is planned (no phased geographic rollout)",
+      "Legacy system will remain operational in parallel for 4 weeks post go-live",
+      "All users will receive role-based training prior to go-live",
+      "Client infrastructure team will manage all on-premise server provisioning",
+      "Project steering committee will meet fortnightly throughout the project",
+      "Change requests will follow the agreed change control board process",
+    ],
+  };
 
-${toneGuide}
-
-Generate project content in strict JSON format. Return ONLY raw JSON, no markdown, no code fences.
-
-{
-  "scopeItems": [
-    "8 to 10 specific in-scope deliverables tailored to the SAP products listed"
-  ],
-  "outOfScope": [
-    "5 to 6 realistic out-of-scope items for this implementation"
-  ],
-  "raciEntries": [
-    {
-      "activity": "activity or deliverable name",
-      "responsible": "R",
-      "accountable": "A",
-      "consulted": "C",
-      "informed": "I"
-    }
-  ],
-  "dependencies": [
-    "8 to 10 specific project and technical dependencies for these products"
-  ],
-  "assumptions": [
-    "8 to 10 realistic project assumptions for this SAP implementation"
-  ]
-}
-
-Rules:
-- scopeItems: 8–10 items, product-specific (mention the actual SAP modules)
-- outOfScope: 5–6 items
-- raciEntries: 8–10 rows covering governance, configuration, data migration, testing, training, go-live, hypercare
-- Each RACI cell must be a single letter: R, A, C, or I
-- dependencies: 8–10 items referencing the specific products
-- assumptions: 8–10 items
-- ALL content must be tailored to the selected SAP products, not generic boilerplate
-- Return ONLY raw JSON`;
-
-  try {
-    const message = await client.messages.create({
-      model: "claude-opus-4-7",
-      max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textBlock = message.content.find(b => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return res.status(500).json({ error: "No text response from AI" });
-    }
-
-    const parsed: AutoGenerateResponse = JSON.parse(extractJson(textBlock.text));
-    res.json(parsed);
-  } catch (err) {
-    console.error("Error calling Claude API:", err);
-    res.status(500).json({ error: String(err) });
-  }
+  res.json(stub);
 });
 
 // ── /api/service-catalog ───────────────────────────────────────────────────
@@ -226,60 +207,34 @@ app.post("/api/service-catalog", async (req, res) => {
     return res.status(400).json({ error: "products array is required" });
   }
 
-  const context = clientContext?.trim() ? `\n\nClient context: ${clientContext}` : "";
+  const productList = products.join(", ");
 
-  const prompt = `You are a senior SAP AMS (Application Management Services) consultant.
-Project: ${projectName || "SAP AMS Engagement"}
-SAP Products: ${products.join(", ")}${context}
+  // ── STUB (AI call commented out) ──────────────────────────────────────────
+  // const message = await client.messages.create({ ... });
+  // res.json(parsed);
 
-Generate a comprehensive service catalog tailored to these specific SAP products. Return ONLY raw JSON, no markdown.
+  const stub = [
+    { id: "inc-p1", category: "Incident Management", serviceName: "P1/P2 Critical Incident Response", description: "24×7 triage and resolution for production-down and business-critical incidents.", included: true, tier: "Standard", slaTarget: "< 1 hr response / < 4 hr resolve", deliverable: "Incident closure report", frequency: "On-demand" },
+    { id: "inc-p3", category: "Incident Management", serviceName: "P3/P4 Standard Incident Management", description: "Business-hours support for medium and low priority incidents.", included: true, tier: "Standard", slaTarget: "< 4 hr response / < 2 day resolve", deliverable: "Incident ticket closure", frequency: "On-demand" },
+    { id: "chg-std", category: "Change Management", serviceName: "Standard Change Deployment", description: `Controlled deployment of tested changes to ${productList} production systems.`, included: true, tier: "Standard", slaTarget: "5-day lead time", deliverable: "Change record & release notes", frequency: "Weekly" },
+    { id: "chg-emg", category: "Change Management", serviceName: "Emergency Change Facilitation", description: "Fast-track approval and deployment of urgent production fixes.", included: true, tier: "Enhanced", slaTarget: "< 4 hr turnaround", deliverable: "Emergency change report", frequency: "On-demand" },
+    { id: "prb-mgmt", category: "Problem Management", serviceName: "Root Cause Analysis & Problem Resolution", description: "Proactive investigation of recurring incidents to eliminate root causes.", included: true, tier: "Enhanced", slaTarget: "RCA within 5 business days", deliverable: "Problem record with RCA", frequency: "On-demand" },
+    { id: "rel-mgmt", category: "Release Management", serviceName: "SAP Transport & Release Coordination", description: "End-to-end management of SAP transport requests across landscapes.", included: true, tier: "Standard", slaTarget: "Scheduled release windows", deliverable: "Release manifest", frequency: "Monthly" },
+    { id: "mon-sys", category: "Monitoring & Alerting", serviceName: "System Health Monitoring", description: `Continuous monitoring of ${productList} system availability and performance KPIs.`, included: true, tier: "Standard", slaTarget: "99.5% uptime target", deliverable: "Monthly health dashboard", frequency: "Daily" },
+    { id: "mon-job", category: "Monitoring & Alerting", serviceName: "Batch Job Monitoring & Recovery", description: "Automated monitoring of scheduled jobs with proactive failure recovery.", included: true, tier: "Standard", slaTarget: "Alert within 15 min of failure", deliverable: "Job failure report", frequency: "Daily" },
+    { id: "perf-tune", category: "Performance Management", serviceName: "Performance Tuning & Optimisation", description: "Periodic analysis and optimisation of system and database performance.", included: true, tier: "Enhanced", slaTarget: "Quarterly review cycle", deliverable: "Performance optimisation report", frequency: "Quarterly" },
+    { id: "sec-audit", category: "Security & Compliance", serviceName: "Security Patch Management", description: "Assessment and application of SAP security patches and notes.", included: true, tier: "Standard", slaTarget: "Critical patches within 30 days", deliverable: "Patch compliance report", frequency: "Monthly" },
+    { id: "sec-role", category: "Security & Compliance", serviceName: "Role & Authorisation Management", description: "Design, maintain and audit SAP roles and user access controls.", included: true, tier: "Standard", slaTarget: "Access provisioned within 2 days", deliverable: "Access audit log", frequency: "On-demand" },
+    { id: "usr-admin", category: "User Administration", serviceName: "User Provisioning & Deprovisioning", description: "Lifecycle management of SAP user accounts aligned to HR events.", included: true, tier: "Standard", slaTarget: "< 1 business day", deliverable: "User change confirmation", frequency: "On-demand" },
+    { id: "data-arch", category: "Data Management", serviceName: "Data Archiving & Retention", description: "Periodic archiving of aged transactional data to maintain system performance.", included: true, tier: "Enhanced", slaTarget: "Annual archiving cycle", deliverable: "Archiving run report", frequency: "Quarterly" },
+    { id: "rep-std", category: "Reporting & Analytics", serviceName: "Standard Report Support & Maintenance", description: `Maintain and enhance standard ${productList} reports and queries.`, included: true, tier: "Standard", slaTarget: "Change within 5 business days", deliverable: "Updated report specification", frequency: "On-demand" },
+    { id: "int-sup", category: "Integration Support", serviceName: "Integration Interface Monitoring & Support", description: "Monitor and resolve failures across all inbound and outbound interfaces.", included: true, tier: "Enhanced", slaTarget: "Alert within 30 min of failure", deliverable: "Interface failure log", frequency: "Daily" },
+    { id: "trn-know", category: "Training & Knowledge Transfer", serviceName: "Super-User Enablement & Knowledge Base", description: "Maintain training materials and support super-user network.", included: true, tier: "Standard", slaTarget: "Materials updated within 10 days", deliverable: "Updated training content", frequency: "Quarterly" },
+    { id: "ci-review", category: "Continuous Improvement", serviceName: "Service Review & Continuous Improvement", description: "Monthly service review with KPI reporting and improvement backlog management.", included: true, tier: "Premium", slaTarget: "Monthly governance meeting", deliverable: "Service review pack", frequency: "Monthly" },
+    { id: "ci-road", category: "Continuous Improvement", serviceName: "SAP Roadmap & Innovation Advisory", description: `Quarterly advisory on SAP product updates and new capabilities for ${productList}.`, included: true, tier: "Premium", slaTarget: "Quarterly innovation briefing", deliverable: "Innovation briefing deck", frequency: "Quarterly" },
+  ];
 
-Return an array of service catalog entries:
-[
-  {
-    "id": "unique-kebab-case-id",
-    "category": "one of: Incident Management | Change Management | Problem Management | Release Management | Monitoring & Alerting | Performance Management | Security & Compliance | User Administration | Data Management | Reporting & Analytics | Integration Support | Training & Knowledge Transfer | Continuous Improvement",
-    "serviceName": "specific service name referencing the SAP product where relevant",
-    "description": "one-sentence description of what this service covers",
-    "included": true,
-    "tier": "Standard | Enhanced | Premium",
-    "slaTarget": "e.g. 99.9% uptime / < 4hr response",
-    "deliverable": "tangible output e.g. Monthly health report / Incident ticket closure",
-    "frequency": "e.g. On-demand | Daily | Weekly | Monthly | Quarterly"
-  }
-]
-
-Rules:
-- Generate 16–22 entries covering all major AMS service categories
-- Each product should have at least 1–2 product-specific services
-- Vary tiers: ~50% Standard, ~30% Enhanced, ~20% Premium
-- Be specific to the SAP products — mention actual module names (FI, CO, SD, MM, etc.)
-- slaTarget must be concise (under 40 chars)
-- Return ONLY a JSON array, no wrapper object`;
-
-  try {
-    const message = await client.messages.create({
-      model: "claude-opus-4-7",
-      max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textBlock = message.content.find(b => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return res.status(500).json({ error: "No text response from AI" });
-    }
-
-    const raw = textBlock.text.trim();
-    const start = raw.indexOf("[");
-    const end = raw.lastIndexOf("]");
-    const jsonStr = start >= 0 ? raw.slice(start, end + 1) : raw;
-    const parsed = JSON.parse(jsonStr);
-    res.json(parsed);
-  } catch (err) {
-    console.error("Error calling Claude API:", err);
-    res.status(500).json({ error: String(err) });
-  }
+  res.json(stub);
 });
 
 // ── /api/auto-resources ────────────────────────────────────────────────────
@@ -301,71 +256,38 @@ app.post("/api/auto-resources", async (req, res) => {
     ? phases
     : ["Prep", "Blueprint", "Realization", "Testing", "Cutover", "Hypercare"];
 
-  const context = clientContext?.trim() ? `\n\nClient context: ${clientContext}` : "";
+  const productList = products.join(", ");
 
-  const prompt = `You are a senior SAP staffing and resource planning consultant.
+  // ── STUB (AI call commented out) ──────────────────────────────────────────
+  // const message = await client.messages.create({ ... });
+  // res.json(parsed);
 
-Project: ${projectName || "SAP Implementation"}
-SAP Products in scope: ${products.join(", ")}${context}
-
-Project phases (in order): ${phaseList.join(", ")}
-
-Generate a realistic FTE resource plan. Return ONLY raw JSON — no markdown, no code fences.
-
-Return an array of resource entries:
-[
-  {
-    "role": "exact job title (e.g. S/4HANA Finance Lead Consultant)",
-    "workstream": "short workstream name (e.g. Finance, Logistics, Technical, HCM)",
-    "type": "Consultant | Client | Both",
-    "allocations": [
-      { "phase": "${phaseList[0]}", "percent": 80 },
-      { "phase": "${phaseList[1]}", "percent": 100 },
-      ...one entry per phase in the same order as the phases array...
-    ]
+  function allocs(percents: number[]) {
+    return phaseList.map((phase, i) => ({ phase, percent: percents[i] ?? 0 }));
   }
-]
 
-Rules:
-- Always include these core roles: Project Manager (Both, 100% all phases), SAP Basis Administrator (Consultant), Change Management Lead (Client), Testing/QA Lead (Consultant), Data Migration Lead (Consultant)
-- Add product-specific functional consultants and architects for EACH selected product — at least 1 lead architect and 1–2 functional consultants per product area
-- Add integration/technical roles if multiple products are selected
-- type "Consultant" = delivery partner staff; "Client" = client-side resources; "Both" = shared/PM roles
-- Allocation percents (0–100) must reflect realistic phasing:
-  - Architects: peak in Blueprint and Realization
-  - Functional consultants: peak in Blueprint and Realization, high in Testing
-  - Developers: low in Blueprint, peak in Realization
-  - Basis: high in Prep and Cutover
-  - Data migration: peak in Realization and Cutover
-  - Testing: peak in Testing phase
-  - Change management: high throughout, peak at Cutover
-  - Client Business Owners: high in Blueprint and Testing
-- Include 10–18 roles total depending on the number of products
-- Each allocations array must have exactly ${phaseList.length} entries in phase order
-- Return ONLY a JSON array`;
+  const stub = [
+    { role: "Project Manager", workstream: "PMO", type: "Both",        allocations: allocs([100, 100, 100, 100, 100, 100]) },
+    { role: "Solution Architect", workstream: "Architecture", type: "Consultant", allocations: allocs([80, 100, 100, 60,  40,  20]) },
+    { role: "SAP Basis Administrator", workstream: "Technical", type: "Consultant", allocations: allocs([100, 60, 80, 60, 100, 60]) },
+    { role: "Change Management Lead", workstream: "OCM", type: "Client", allocations: allocs([60, 80, 80, 100, 100, 80]) },
+    { role: "Testing / QA Lead", workstream: "Testing", type: "Consultant", allocations: allocs([20, 40, 60, 100, 80, 40]) },
+    { role: "Data Migration Lead", workstream: "Data", type: "Consultant", allocations: allocs([60, 80, 100, 60, 100, 40]) },
+    { role: `${products[0] || "SAP"} Lead Functional Consultant`, workstream: products[0] || "Functional", type: "Consultant", allocations: allocs([40, 100, 100, 80, 60, 40]) },
+    { role: `${products[0] || "SAP"} Functional Consultant`, workstream: products[0] || "Functional", type: "Consultant", allocations: allocs([20, 80, 100, 80, 40, 20]) },
+    ...(products.length > 1 ? [
+      { role: `${products[1]} Lead Functional Consultant`, workstream: products[1], type: "Consultant" as const, allocations: allocs([40, 100, 100, 80, 60, 40]) },
+      { role: `${products[1]} Functional Consultant`, workstream: products[1], type: "Consultant" as const, allocations: allocs([20, 80, 100, 80, 40, 20]) },
+    ] : []),
+    ...(products.length > 2 ? [
+      { role: `${products[2]} Functional Consultant`, workstream: products[2], type: "Consultant" as const, allocations: allocs([20, 80, 100, 80, 40, 20]) },
+    ] : []),
+    { role: "ABAP / Integration Developer", workstream: "Technical", type: "Consultant", allocations: allocs([20, 40, 100, 60, 40, 20]) },
+    { role: "Client Business Process Owner", workstream: "Business", type: "Client", allocations: allocs([40, 100, 60, 100, 80, 60]) },
+    { role: "Client IT Lead", workstream: "Technical", type: "Client", allocations: allocs([80, 60, 60, 60, 100, 60]) },
+  ];
 
-  try {
-    const message = await client.messages.create({
-      model: "claude-opus-4-7",
-      max_tokens: 5000,
-      thinking: { type: "adaptive" },
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textBlock = message.content.find(b => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return res.status(500).json({ error: "No text response from AI" });
-    }
-
-    const raw = textBlock.text.trim();
-    const start = raw.indexOf("[");
-    const end = raw.lastIndexOf("]");
-    const parsed = JSON.parse(start >= 0 ? raw.slice(start, end + 1) : raw);
-    res.json(parsed);
-  } catch (err) {
-    console.error("Error calling Claude API:", err);
-    res.status(500).json({ error: String(err) });
-  }
+  res.json(stub);
 });
 
 const PORT = process.env.PORT || 3001;
