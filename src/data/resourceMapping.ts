@@ -48,26 +48,52 @@ const MGMT_RESOURCES: ResourceEntry[] = [
   r("AMS Service Delivery Manager",  "Management",   "pm", "Client"),
 ];
 
+export type DomainIntensity = 0.5 | 1 | 1.5 | 2;
+
+export interface ResourceIntensities {
+  basis:    DomainIntensity;
+  security: DomainIntensity;
+  solman:   DomainIntensity;
+}
+
+export const DEFAULT_INTENSITIES: ResourceIntensities = {
+  basis:    1,
+  security: 1,
+  solman:   1,
+};
+
+function applyIntensity(entries: ResourceEntry[], multiplier: number): ResourceEntry[] {
+  return entries.map(e => ({
+    ...e,
+    allocations: e.allocations.map(a => ({
+      ...a,
+      percent: Math.min(100, Math.round(a.percent * multiplier)),
+    })),
+  }));
+}
+
 /**
- * Generates AMS resource rows driven by which capability domains are selected.
- * - capsByDomain: { hasBasis, hasSecurity, hasSolMan } from selectedCapabilities
- * - Falls back to all three domains when no capabilities have been selected
- * - productIds is kept for API compatibility but is not used
+ * Generates AMS resource rows driven by which capability domains are selected
+ * and optional per-domain intensity multipliers.
  */
 export function generateResourcesFromProducts(
   _productIds: string[],
   capsByDomain: { hasBasis: boolean; hasSecurity: boolean; hasSolMan: boolean } = {
     hasBasis: true, hasSecurity: true, hasSolMan: true,
-  }
+  },
+  intensities: ResourceIntensities = DEFAULT_INTENSITIES
 ): ResourceEntry[] {
   const rows: ResourceEntry[] = [];
 
   const anySelected = capsByDomain.hasBasis || capsByDomain.hasSecurity || capsByDomain.hasSolMan;
   const showAll = !anySelected;
 
-  if (showAll || capsByDomain.hasBasis)    AMS_DOMAIN_RESOURCES.basis.forEach(e => rows.push({ ...e, allocations: [...e.allocations] }));
-  if (showAll || capsByDomain.hasSecurity) AMS_DOMAIN_RESOURCES.security.forEach(e => rows.push({ ...e, allocations: [...e.allocations] }));
-  if (showAll || capsByDomain.hasSolMan)   AMS_DOMAIN_RESOURCES.solman.forEach(e => rows.push({ ...e, allocations: [...e.allocations] }));
+  if (showAll || capsByDomain.hasBasis)
+    applyIntensity(AMS_DOMAIN_RESOURCES.basis, intensities.basis).forEach(e => rows.push(e));
+  if (showAll || capsByDomain.hasSecurity)
+    applyIntensity(AMS_DOMAIN_RESOURCES.security, intensities.security).forEach(e => rows.push(e));
+  if (showAll || capsByDomain.hasSolMan)
+    applyIntensity(AMS_DOMAIN_RESOURCES.solman, intensities.solman).forEach(e => rows.push(e));
 
   MGMT_RESOURCES.forEach(e => rows.push({ ...e, allocations: [...e.allocations] }));
   return rows;

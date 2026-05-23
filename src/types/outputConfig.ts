@@ -72,12 +72,12 @@ export const THEME_PALETTES: Record<ColorTheme, {
   preview: string; // css gradient for UI
 }> = {
   sapBlue: {
-    primary: "0070F2",
-    dark: "003D73",
-    light: "E8F4FD",
-    accent: "F0AB00",
-    label: "SAP Blue",
-    preview: "linear-gradient(135deg, #003D73 0%, #0070F2 100%)",
+    primary: "7900BF",
+    dark: "0A1B3D",
+    light: "F3F5FB",
+    accent: "C7A26A",
+    label: "Accenture",
+    preview: "linear-gradient(135deg, #0A1B3D 0%, #7900BF 100%)",
   },
   midnight: {
     primary: "1A56DB",

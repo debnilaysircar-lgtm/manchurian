@@ -27,7 +27,7 @@ function TreeNode({
   const isLeaf = !node.children?.length;
   const allChecked = leaves.every(t => selected.has(t));
   const someChecked = !allChecked && leaves.some(t => selected.has(t));
-  const [open, setOpen] = useState(depth < 2);
+  const [open, setOpen] = useState(depth < 3);
 
   const q = searchQ.toLowerCase();
   const matchesDescendant = q

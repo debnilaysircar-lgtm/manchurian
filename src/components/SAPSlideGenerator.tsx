@@ -3,10 +3,12 @@ import ProductSearch from "./ProductSearch";
 import ConfigPanel from "./ConfigPanel";
 import CapabilitiesPicker from "./CapabilitiesPicker";
 import GapPicker from "./GapPicker";
+import ResourceConfigStep from "./ResourceConfigStep";
 import type { SAPProduct } from "../data/sapProducts";
 import type { RACIEntry, SystemEnvironment, ResourceEntry } from "../utils/generatePptx";
 import { generatePptx } from "../utils/generatePptx";
-import { generateResourcesFromProducts, PHASE_LABELS } from "../data/resourceMapping";
+import { generateResourcesFromProducts, PHASE_LABELS, DEFAULT_INTENSITIES } from "../data/resourceMapping";
+import type { ResourceIntensities } from "../data/resourceMapping";
 import { fetchBestPractices } from "../utils/fetchBestPractices";
 import type { BestPracticesResponse } from "../utils/fetchBestPractices";
 import { autoGenerate } from "../utils/autoGenerate";
@@ -71,11 +73,12 @@ const DEFAULT_ASSUMPTIONS = [
   "Business sign-off on design documents will be completed within 5 business days",
 ];
 
-type Step = "basics" | "products" | "capabilities" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "catalog" | "commercial" | "review";
+type Step = "basics" | "products" | "capabilities" | "resconfig" | "systems" | "scope" | "raci" | "dependencies" | "assumptions" | "resources" | "ams" | "catalog" | "commercial" | "review";
 const STEPS: { key: Step; label: string; icon: string }[] = [
   { key: "basics",        label: "Project Info",   icon: "📁" },
   { key: "products",      label: "SAP Products",   icon: "🔧" },
   { key: "capabilities",  label: "Capabilities",   icon: "🏗️" },
+  { key: "resconfig",     label: "Res. Config",    icon: "⚙️" },
   { key: "systems",       label: "Systems",         icon: "🖥️" },
   { key: "scope",         label: "Scope",           icon: "📋" },
   { key: "raci",          label: "RACI",            icon: "👥" },
@@ -176,6 +179,7 @@ export default function SAPSlideGenerator() {
   // Per-product capability selections: productId → Set<capabilityLeafText>
   const [capsByProduct, setCapsByProduct] = useState<Map<string, Set<string>>>(new Map());
   const [outOfScopeGaps, setOutOfScopeGaps] = useState<Set<string>>(new Set());
+  const [resourceIntensities, setResourceIntensities] = useState<ResourceIntensities>(DEFAULT_INTENSITIES);
 
   // Union of all selected capabilities (for domain slides)
   const selectedCapabilities = useMemo(() => {
@@ -226,7 +230,7 @@ export default function SAPSlideGenerator() {
   // Auto-generate resources when entering the resources step
   useEffect(() => {
     if (step === "resources" && resources.length === 0 && selectedProducts.length > 0) {
-      setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id), capDomains));
+      setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id), capDomains, resourceIntensities));
     }
   }, [step]);
 
@@ -379,7 +383,7 @@ export default function SAPSlideGenerator() {
   function removeResourceRow(idx: number) { setResources(resources.filter((_, i) => i !== idx)); }
   function regenerateResources() {
     if (selectedProducts.length === 0) return;
-    setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id), capDomains));
+    setResources(generateResourcesFromProducts(selectedProducts.map(p => p.id), capDomains, resourceIntensities));
   }
 
   // Per-phase FTE totals
@@ -550,6 +554,15 @@ export default function SAPSlideGenerator() {
                   onChange={next => { setCapsByProduct(next); setResources([]); }}
                 />
               </div>
+            )}
+
+            {/* ── RESOURCE CONFIG ── */}
+            {step === "resconfig" && (
+              <ResourceConfigStep
+                selectedCapabilities={selectedCapabilities}
+                intensities={resourceIntensities}
+                onChange={next => { setResourceIntensities(next); setResources([]); }}
+              />
             )}
 
             {/* ── SYSTEMS ── */}
