@@ -8,6 +8,7 @@ import { generateResourcesFromProducts, PHASE_LABELS } from "../data/resourceMap
 import { fetchBestPractices } from "../utils/fetchBestPractices";
 import type { BestPracticesResponse } from "../utils/fetchBestPractices";
 import { autoGenerate } from "../utils/autoGenerate";
+import { generateSow } from "../utils/generateSow";
 import type { OutputConfig } from "../types/outputConfig";
 import { DEFAULT_CONFIG, THEME_PALETTES } from "../types/outputConfig";
 import type { AMSData } from "../types/amsData";
@@ -155,6 +156,8 @@ export default function SAPSlideGenerator() {
   const [clientContext, setClientContext] = useState("");
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [autoGenError, setAutoGenError] = useState<string | null>(null);
+  const [downloadingSow, setDownloadingSow] = useState(false);
+  const [generatedSow, setGeneratedSow] = useState(false);
 
   // Auto-generate resources when entering the resources step
   useEffect(() => {
@@ -227,6 +230,20 @@ export default function SAPSlideGenerator() {
       setAutoGenError(String(err));
     } finally {
       setAutoGenerating(false);
+    }
+  }
+
+  async function handleDownloadSow() {
+    setDownloadingSow(true);
+    setGeneratedSow(false);
+    try {
+      await generateSow({ projectName, client, projectManager, preparedBy, version, selectedProducts, systems, scopeItems, raciEntries, dependencies, assumptions, resources, amsData, clientContext, bestPractices: bestPractices ?? undefined, outputConfig });
+      setGeneratedSow(true);
+    } catch (err) {
+      console.error(err);
+      alert("Error generating SoW. Check the browser console.");
+    } finally {
+      setDownloadingSow(false);
     }
   }
 
@@ -303,23 +320,46 @@ export default function SAPSlideGenerator() {
             <h1 className="text-white font-bold text-xl">Solution Slide Generator</h1>
             <p className="text-blue-300 text-sm">Generate professional SAP implementation architecture decks</p>
           </div>
-          {/* Config indicator + button */}
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
-              <span
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ background: activeTheme.preview }}
-              />
-              <span className="text-white text-xs font-medium">{activeTheme.label}</span>
+          {/* Header action bar */}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Theme chip */}
+            <div className="hidden lg:flex items-center gap-1.5 bg-white/10 rounded-lg px-3 py-1.5">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: activeTheme.preview }} />
+              <span className="text-white text-xs">{activeTheme.label}</span>
               <span className="text-blue-300 text-xs">·</span>
               <span className="text-blue-200 text-xs">{enabledSlideCount} slides</span>
             </div>
-            <button
-              onClick={() => setConfigOpen(true)}
-              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            >
+
+            <button onClick={() => setConfigOpen(true)}
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
               <span>⚙</span>
-              <span>Configure</span>
+              <span className="hidden sm:inline">Configure</span>
+            </button>
+
+            <button
+              onClick={handleDownloadSow}
+              disabled={downloadingSow || selectedProducts.length === 0}
+              title="Download Statement of Work (.docx)"
+              className={`flex items-center gap-1.5 border text-sm font-medium px-3 py-2 rounded-lg transition-colors ${
+                selectedProducts.length === 0
+                  ? "bg-white/5 border-white/10 text-white/40 cursor-not-allowed"
+                  : "bg-green-700/80 hover:bg-green-600 border-green-500/50 text-white"
+              }`}>
+              <span>{downloadingSow ? "⏳" : "📄"}</span>
+              <span className="hidden sm:inline">{downloadingSow ? "Generating…" : "SoW"}</span>
+            </button>
+
+            <button
+              onClick={handleGenerate}
+              disabled={generating || fetchingAI || selectedProducts.length === 0}
+              title="Download Solution Architecture PPTX"
+              className={`flex items-center gap-1.5 border text-sm font-medium px-3 py-2 rounded-lg transition-colors ${
+                selectedProducts.length === 0
+                  ? "bg-white/5 border-white/10 text-white/40 cursor-not-allowed"
+                  : "bg-blue-600/80 hover:bg-blue-500 border-blue-400/50 text-white"
+              }`}>
+              <span>{fetchingAI || generating ? "⏳" : "📊"}</span>
+              <span className="hidden sm:inline">{fetchingAI ? "AI…" : generating ? "Generating…" : "PPTX"}</span>
             </button>
           </div>
         </div>
@@ -1042,22 +1082,43 @@ export default function SAPSlideGenerator() {
                   )}
                 </div>
 
-                <button onClick={handleGenerate} disabled={generating || fetchingAI || selectedProducts.length === 0}
-                  className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg ${
-                    generating || fetchingAI || selectedProducts.length === 0
-                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      : "bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white shadow-blue-600/30"
-                  }`}>
-                  {fetchingAI ? "✨ Fetching AI content…" : generating ? "⏳ Generating PPTX..." : "⬇️ Generate & Download PPTX"}
-                </button>
-
                 {selectedProducts.length === 0 && (
-                  <p className="text-center text-amber-600 text-sm">Please select at least one SAP product first.</p>
+                  <p className="text-center text-amber-600 text-sm bg-amber-50 border border-amber-200 rounded-xl p-3">⚠ Please select at least one SAP product first.</p>
                 )}
-                {generated && (
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-                    <p className="text-green-800 font-semibold text-lg">✅ PPTX Generated Successfully!</p>
-                    <p className="text-green-600 text-sm mt-1">Check your browser's download folder.</p>
+
+                {/* Download buttons */}
+                <div className="grid grid-cols-2 gap-4">
+                  <button onClick={handleGenerate} disabled={generating || fetchingAI || selectedProducts.length === 0}
+                    className={`py-4 rounded-xl font-bold text-base transition-all shadow-lg flex flex-col items-center gap-1 ${
+                      generating || fetchingAI || selectedProducts.length === 0
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : "bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white shadow-blue-600/30"
+                    }`}>
+                    <span className="text-2xl">{fetchingAI ? "✨" : generating ? "⏳" : "📊"}</span>
+                    <span>{fetchingAI ? "Fetching AI content…" : generating ? "Generating…" : "Download Solution PPTX"}</span>
+                    <span className="text-xs font-normal opacity-75">PowerPoint deck with all slides</span>
+                  </button>
+
+                  <button onClick={handleDownloadSow} disabled={downloadingSow || selectedProducts.length === 0}
+                    className={`py-4 rounded-xl font-bold text-base transition-all shadow-lg flex flex-col items-center gap-1 ${
+                      downloadingSow || selectedProducts.length === 0
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : "bg-gradient-to-r from-green-700 to-green-600 hover:from-green-800 hover:to-green-700 text-white shadow-green-600/30"
+                    }`}>
+                    <span className="text-2xl">{downloadingSow ? "⏳" : "📄"}</span>
+                    <span>{downloadingSow ? "Generating…" : "Download SoW Word Doc"}</span>
+                    <span className="text-xs font-normal opacity-75">Statement of Work (.docx)</span>
+                  </button>
+                </div>
+
+                {(generated || generatedSow) && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                    <p className="text-green-800 font-semibold text-center mb-1">✅ Download complete!</p>
+                    <div className="flex justify-center gap-6 text-xs text-green-700">
+                      {generated    && <span>✓ Solution PPTX</span>}
+                      {generatedSow && <span>✓ Statement of Work (.docx)</span>}
+                    </div>
+                    <p className="text-green-600 text-xs text-center mt-1">Check your browser's download folder.</p>
                   </div>
                 )}
               </div>
