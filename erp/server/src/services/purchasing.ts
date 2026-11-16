@@ -14,6 +14,7 @@ export interface POInput {
   orderDate?: string;
   deliveryDate?: string | null;
   notes?: string | null;
+  purchasingGroupId?: number | null;
   lines: { materialId: number; qty: number; unitPrice: number /* cents */ }[];
 }
 
@@ -27,11 +28,14 @@ function validatePO(db: DB, input: POInput) {
   const v = db.prepare('SELECT is_active FROM vendors WHERE id = ?').get(input.vendorId) as { is_active: number } | undefined;
   if (!v) throw notFound('Vendor');
   if (!v.is_active) throw badRequest('Vendor is blocked');
-  if (!db.prepare('SELECT 1 FROM warehouses WHERE id = ?').get(input.warehouseId)) throw notFound('Warehouse');
+  if (!db.prepare('SELECT 1 FROM warehouses WHERE id = ?').get(input.warehouseId)) throw notFound('Storage location');
+  if (input.purchasingGroupId && !db.prepare('SELECT 1 FROM purchasing_groups WHERE id = ?').get(input.purchasingGroupId)) throw notFound('Purchasing group');
   if (!input.lines.length) throw badRequest('A purchase order needs at least one line');
   for (const l of input.lines) {
     const m = getMaterial(db, l.materialId);
     if (!m.is_active) throw badRequest(`Material ${m.code} is inactive`);
+    const mt = db.prepare('SELECT m.material_type, t.purchasable FROM materials m LEFT JOIN material_types t ON t.code = m.material_type WHERE m.id = ?').get(m.id) as any;
+    if (mt?.purchasable === 0) throw badRequest(`Material ${m.code} has type ${mt.material_type}, which cannot be purchased (see Configuration > Material types)`);
     if (!(l.qty > 0)) throw badRequest(`Quantity for ${m.code} must be positive`);
     if (!(l.unitPrice >= 0)) throw badRequest(`Price for ${m.code} must not be negative`);
   }
@@ -48,10 +52,10 @@ export function createPO(db: DB, input: POInput, userId: number | null) {
     const docNo = nextNumber(db, 'PO');
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO purchase_orders(doc_no, vendor_id, warehouse_id, order_date, delivery_date, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO purchase_orders(doc_no, vendor_id, warehouse_id, order_date, delivery_date, notes, purchasing_group_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(docNo, input.vendorId, input.warehouseId, input.orderDate ?? today(), input.deliveryDate ?? null, input.notes ?? null, userId);
+      .run(docNo, input.vendorId, input.warehouseId, input.orderDate ?? today(), input.deliveryDate ?? null, input.notes ?? null, input.purchasingGroupId ?? null, userId);
     insertLines(db, Number(lastInsertRowid), input.lines);
     return { id: Number(lastInsertRowid), docNo };
   })();
@@ -62,12 +66,13 @@ export function updatePO(db: DB, id: number, input: POInput) {
   if (po.status !== 'DRAFT') throw badRequest('Only draft purchase orders can be changed');
   validatePO(db, input);
   db.transaction(() => {
-    db.prepare('UPDATE purchase_orders SET vendor_id=?, warehouse_id=?, order_date=?, delivery_date=?, notes=? WHERE id=?').run(
+    db.prepare('UPDATE purchase_orders SET vendor_id=?, warehouse_id=?, order_date=?, delivery_date=?, notes=?, purchasing_group_id=? WHERE id=?').run(
       input.vendorId,
       input.warehouseId,
       input.orderDate ?? po.order_date,
       input.deliveryDate ?? null,
       input.notes ?? null,
+      input.purchasingGroupId ?? null,
       id,
     );
     db.prepare('DELETE FROM po_lines WHERE po_id = ?').run(id);
@@ -80,7 +85,11 @@ export function setPOStatus(db: DB, id: number, action: 'release' | 'cancel' | '
   const lines = db.prepare('SELECT received_qty, invoiced_qty FROM po_lines WHERE po_id = ?').all(id) as any[];
   if (action === 'release') {
     if (po.status !== 'DRAFT') throw badRequest('Only draft purchase orders can be released');
-    const limit = toCentsNum(getConfig<number>(db, 'po_release_limit'));
+    // A purchasing group's own limit overrides the global one.
+    const group = po.purchasing_group_id
+      ? (db.prepare('SELECT code, release_limit FROM purchasing_groups WHERE id = ?').get(po.purchasing_group_id) as { code: string; release_limit: number | null })
+      : null;
+    const limit = group?.release_limit != null ? group.release_limit : toCentsNum(getConfig<number>(db, 'po_release_limit'));
     const value = (db.prepare('SELECT COALESCE(SUM(ROUND(qty * unit_price)), 0) v FROM po_lines WHERE po_id = ?').get(id) as { v: number }).v;
     if (limit > 0 && value > limit && role !== 'admin')
       throw badRequest(`Net value ${fromCents(value)} is above the release limit of ${fromCents(limit)}; an administrator must release this order`);
@@ -101,8 +110,9 @@ export function getPO(db: DB, id: number) {
   const po = db
     .prepare(
       `SELECT po.*, v.code AS vendor_code, v.name AS vendor_name, w.code AS warehouse_code, w.name AS warehouse_name,
-              u.full_name AS created_by_name
+              pt.code AS plant_code, pg.code AS purchasing_group_code, pg.name AS purchasing_group_name, u.full_name AS created_by_name
        FROM purchase_orders po JOIN vendors v ON v.id = po.vendor_id JOIN warehouses w ON w.id = po.warehouse_id
+       LEFT JOIN plants pt ON pt.id = w.plant_id LEFT JOIN purchasing_groups pg ON pg.id = po.purchasing_group_id
        LEFT JOIN users u ON u.id = po.created_by WHERE po.id = ?`,
     )
     .get(id) as any;
@@ -134,6 +144,7 @@ export function listPOs(db: DB, q: { status?: string; vendorId?: number; search?
   return db
     .prepare(
       `SELECT po.id, po.doc_no, po.order_date, po.delivery_date, po.status, v.name AS vendor_name, w.code AS warehouse_code,
+              (SELECT code FROM purchasing_groups pg WHERE pg.id = po.purchasing_group_id) AS purchasing_group_code,
               ROUND(SUM(ROUND(pl.qty * pl.unit_price))) / 100.0 AS total,
               CASE WHEN SUM(pl.qty) > 0 THEN ROUND(100.0 * SUM(pl.received_qty) / SUM(pl.qty)) ELSE 0 END AS received_pct,
               CASE WHEN SUM(pl.qty) > 0 THEN ROUND(100.0 * SUM(pl.invoiced_qty) / SUM(pl.qty)) ELSE 0 END AS invoiced_pct
@@ -204,6 +215,8 @@ export interface InvoiceInput {
   vendorRef: string;
   invoiceDate?: string;
   dueDate?: string;
+  /** Input tax code; omitted = no tax. */
+  taxCodeId?: number | null;
   lines: { poLineId: number; qty: number; unitPrice: number /* cents */ }[];
 }
 
@@ -253,6 +266,16 @@ export function postInvoice(db: DB, poId: number, input: InvoiceInput, userId: n
       ilines.push({ poLineId: pl.id, qty, unitPrice: Math.round(it.unitPrice), amount, desc: `${mat.code} ${mat.name}` });
     }
     if (total <= 0) throw badRequest('Invoice total must be positive');
+    let tax = 0;
+    if (input.taxCodeId) {
+      const tc = db.prepare('SELECT * FROM tax_codes WHERE id = ?').get(input.taxCodeId) as any;
+      if (!tc) throw badRequest('Tax code does not exist');
+      if (tc.direction !== 'INPUT') throw badRequest(`Tax code ${tc.code} is an output tax code; vendor invoices need an input tax code`);
+      tax = Math.round((total * tc.rate_pct) / 100);
+      if (tax > 0) jlines.push({ accountId: tc.account_id, debit: tax, memo: `Input tax ${tc.code} ${tc.rate_pct}%`, vendorId: vendor.id });
+    }
+    const net = total;
+    total = net + tax;
     jlines.push({ accountId: ap, credit: total, memo: `Vendor ${vendor.code} inv ${input.vendorRef}`, vendorId: vendor.id });
 
     const journal = postJournal(
@@ -262,10 +285,10 @@ export function postInvoice(db: DB, poId: number, input: InvoiceInput, userId: n
     );
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO vendor_invoices(doc_no, vendor_id, po_id, vendor_ref, invoice_date, due_date, total, journal_entry_id, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO vendor_invoices(doc_no, vendor_id, po_id, vendor_ref, invoice_date, due_date, total, tax_code_id, tax_amount, journal_entry_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(docNo, vendor.id, poId, input.vendorRef.trim(), invoiceDate, dueDate, total, journal.id, userId);
+      .run(docNo, vendor.id, poId, input.vendorRef.trim(), invoiceDate, dueDate, total, input.taxCodeId ?? null, tax, journal.id, userId);
     const invId = Number(lastInsertRowid);
     const ins = db.prepare('INSERT INTO invoice_lines(invoice_id, po_line_id, description, qty, unit_price, amount) VALUES (?, ?, ?, ?, ?, ?)');
     ilines.forEach((l) => ins.run(invId, l.poLineId, l.desc, l.qty, l.unitPrice, l.amount));
@@ -286,6 +309,8 @@ export function listInvoices(db: DB, q: { status?: string; vendorId?: number; op
     .prepare(
       `SELECT vi.id, vi.doc_no, vi.vendor_ref, vi.invoice_date, vi.due_date, vi.status,
               vi.total / 100.0 AS total, vi.paid_amount / 100.0 AS paid_amount, (vi.total - vi.paid_amount) / 100.0 AS open_amount,
+              (vi.total - vi.tax_amount) / 100.0 AS net_amount, vi.tax_amount / 100.0 AS tax_amount,
+              (SELECT code FROM tax_codes t WHERE t.id = vi.tax_code_id) AS tax_code,
               v.id AS vendor_id, v.code AS vendor_code, v.name AS vendor_name, po.id AS po_id, po.doc_no AS po_doc_no,
               je.id AS journal_entry_id, je.doc_no AS journal_doc_no
        FROM vendor_invoices vi JOIN vendors v ON v.id = vi.vendor_id
@@ -317,6 +342,8 @@ function listInvoicesById(db: DB, id: number) {
     .prepare(
       `SELECT vi.id, vi.doc_no, vi.vendor_id, vi.po_id, vi.vendor_ref, vi.invoice_date, vi.due_date, vi.status, vi.journal_entry_id, vi.created_at,
               vi.total / 100.0 AS total, vi.paid_amount / 100.0 AS paid_amount, (vi.total - vi.paid_amount) / 100.0 AS open_amount,
+              (vi.total - vi.tax_amount) / 100.0 AS net_amount, vi.tax_amount / 100.0 AS tax_amount,
+              (SELECT code FROM tax_codes t WHERE t.id = vi.tax_code_id) AS tax_code,
               v.code AS vendor_code, v.name AS vendor_name, po.doc_no AS po_doc_no, je.doc_no AS journal_doc_no
        FROM vendor_invoices vi JOIN vendors v ON v.id = vi.vendor_id
        LEFT JOIN purchase_orders po ON po.id = vi.po_id LEFT JOIN journal_entries je ON je.id = vi.journal_entry_id WHERE vi.id = ?`,

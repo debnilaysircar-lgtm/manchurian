@@ -358,6 +358,7 @@ export const onBilling = (db: DB, invoiceId: number, userId: number | null) =>
           seg('E1EDK02', { QUALF: '009', BELNR: inv.doc_no }),
           seg('E1EDK03', { IDDAT: '012', DATUM: d8(inv.invoice_date) }),
           seg('E1EDK03', { IDDAT: '028', DATUM: d8(inv.due_date) }),
+          ...(inv.tax_amount > 0 ? [seg('E1EDK04', { MWSKZ: String(inv.tax_code ?? '').split(' ')[0], MWSBT: amt(inv.tax_amount) })] : []),
           ...lines.map((l, i) =>
             seg('E1EDP01', { POSEX: pad(l.line_no ?? (i + 1) * 10, 6), MENGE: qtyStr(l.qty), MENEE: l.uom, VPREI: amt(fromCents(l.unit_price)), NETWR: amt(fromCents(l.amount)) }, [
               seg('E1EDP19', { QUALF: '001', IDTNR: l.code, KTEXT: l.name }),
@@ -556,7 +557,14 @@ const HANDLERS: Record<string, Handler> = {
       return { poLineId: pl.id, qty: num(field(p, 'MENGE'), `Item ${lineNo} quantity (MENGE)`), unitPrice: toCents(num(field(p, 'VPREI'), `Item ${lineNo} price (VPREI)`)) };
     });
     const invoiceDate = fromD8(field(findAll(data.segments, 'E1EDK03').find((s) => field(s, 'IDDAT') === '012'), 'DATUM'), 'Invoice date');
-    const inv = postInvoice(db, po.id, { vendorRef, invoiceDate, lines }, userId);
+    const mwskz = field(find(data.segments, 'E1EDK04'), 'MWSKZ');
+    let taxCodeId: number | null = null;
+    if (mwskz) {
+      const tc = db.prepare("SELECT id FROM tax_codes WHERE code = ? AND direction = 'INPUT'").get(mwskz) as { id: number } | undefined;
+      if (!tc) throw badRequest(`Tax code ${mwskz} (E1EDK04-MWSKZ) is not an input tax code in this system`);
+      taxCodeId = tc.id;
+    }
+    const inv = postInvoice(db, po.id, { vendorRef, invoiceDate, taxCodeId, lines }, userId);
     return { refType: 'VENDOR_INVOICE', refId: inv.id, refDocNo: inv.docNo, message: `Vendor invoice ${inv.docNo} posted (FI document ${inv.journalDocNo})` };
   },
 
@@ -570,6 +578,8 @@ const HANDLERS: Record<string, Handler> = {
     if (mtart && !type) throw badRequest(`Material type ${mtart} is not supported (use ROH, HAWA, FERT or HIBE)`);
     const priceRaw = field(deepAll(mara?.children, 'Z1MANPR')[0], 'SALES_PRICE');
     const price = priceRaw !== undefined ? toCents(num(priceRaw, 'Sales price')) : undefined;
+    const meins = field(mara, 'MEINS')?.toUpperCase();
+    if (meins && !db.prepare('SELECT 1 FROM units WHERE code = ?').get(meins)) throw badRequest(`Unit ${meins} (E1MARAM-MEINS) is not defined in this system`);
     const existing = db.prepare('SELECT * FROM materials WHERE code = ?').get(code) as any;
     if (existing) {
       db.prepare('UPDATE materials SET name = ?, uom = ?, material_type = ?, sales_price = ? WHERE id = ?').run(
@@ -590,27 +600,28 @@ const HANDLERS: Record<string, Handler> = {
     const k = deepAll(data.segments, 'E1KNA1M')[0];
     const code = field(k, 'KUNNR');
     if (!code) throw badRequest('Customer number (E1KNA1M-KUNNR) is missing');
-    const terms = termsDays(field(deepAll(k?.children, 'E1KNB1M')[0], 'ZTERM'));
+    const pt = terms(db, field(deepAll(k?.children, 'E1KNB1M')[0], 'ZTERM'));
     const limitRaw = field(deepAll(k?.children, 'E1KNKKM')[0], 'KLIMK');
     const limit = limitRaw !== undefined ? toCents(num(limitRaw, 'Credit limit (KLIMK)')) : undefined;
     const rec = partnerRecord(k);
     const existing = db.prepare('SELECT * FROM customers WHERE code = ?').get(code) as any;
     if (existing) {
-      db.prepare('UPDATE customers SET name = ?, address = ?, tax_id = ?, phone = ?, payment_terms_days = ?, credit_limit = ? WHERE id = ?').run(
+      db.prepare('UPDATE customers SET name = ?, address = ?, tax_id = ?, phone = ?, payment_terms_days = ?, credit_limit = ?, payment_terms_id = COALESCE(?, payment_terms_id) WHERE id = ?').run(
         rec.name ?? existing.name,
         rec.address ?? existing.address,
         rec.taxId ?? existing.tax_id,
         rec.phone ?? existing.phone,
-        terms ?? existing.payment_terms_days,
+        pt?.days ?? existing.payment_terms_days,
         limit ?? existing.credit_limit,
+        pt?.id ?? null,
         existing.id,
       );
       return { refType: 'CUSTOMER', refId: existing.id, refDocNo: code, message: `Customer ${code} updated` };
     }
     if (!rec.name) throw badRequest('Name (E1KNA1M-NAME1) is required for a new customer');
     const r = db
-      .prepare('INSERT INTO customers(code, name, address, tax_id, phone, payment_terms_days, credit_limit) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(code, rec.name, rec.address ?? null, rec.taxId ?? null, rec.phone ?? null, terms ?? 30, limit ?? 0);
+      .prepare('INSERT INTO customers(code, name, address, tax_id, phone, payment_terms_days, payment_terms_id, credit_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(code, rec.name, rec.address ?? null, rec.taxId ?? null, rec.phone ?? null, pt?.days ?? 30, pt?.id ?? null, limit ?? 0);
     return { refType: 'CUSTOMER', refId: Number(r.lastInsertRowid), refDocNo: code, message: `Customer ${code} created` };
   },
 
@@ -618,27 +629,40 @@ const HANDLERS: Record<string, Handler> = {
     const k = deepAll(data.segments, 'E1LFA1M')[0];
     const code = field(k, 'LIFNR');
     if (!code) throw badRequest('Vendor number (E1LFA1M-LIFNR) is missing');
-    const terms = termsDays(field(deepAll(k?.children, 'E1LFB1M')[0], 'ZTERM'));
+    const pt = terms(db, field(deepAll(k?.children, 'E1LFB1M')[0], 'ZTERM'));
     const rec = partnerRecord(k);
     const existing = db.prepare('SELECT * FROM vendors WHERE code = ?').get(code) as any;
     if (existing) {
-      db.prepare('UPDATE vendors SET name = ?, address = ?, tax_id = ?, phone = ?, payment_terms_days = ? WHERE id = ?').run(
+      db.prepare('UPDATE vendors SET name = ?, address = ?, tax_id = ?, phone = ?, payment_terms_days = ?, payment_terms_id = COALESCE(?, payment_terms_id) WHERE id = ?').run(
         rec.name ?? existing.name,
         rec.address ?? existing.address,
         rec.taxId ?? existing.tax_id,
         rec.phone ?? existing.phone,
-        terms ?? existing.payment_terms_days,
+        pt?.days ?? existing.payment_terms_days,
+        pt?.id ?? null,
         existing.id,
       );
       return { refType: 'VENDOR', refId: existing.id, refDocNo: code, message: `Vendor ${code} updated` };
     }
     if (!rec.name) throw badRequest('Name (E1LFA1M-NAME1) is required for a new vendor');
     const r = db
-      .prepare('INSERT INTO vendors(code, name, address, tax_id, phone, payment_terms_days) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(code, rec.name, rec.address ?? null, rec.taxId ?? null, rec.phone ?? null, terms ?? 30);
+      .prepare('INSERT INTO vendors(code, name, address, tax_id, phone, payment_terms_days, payment_terms_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(code, rec.name, rec.address ?? null, rec.taxId ?? null, rec.phone ?? null, pt?.days ?? 30, pt?.id ?? null);
     return { refType: 'VENDOR', refId: Number(r.lastInsertRowid), refDocNo: code, message: `Vendor ${code} created` };
   },
 };
+
+/** Resolves ZTERM to payment terms: an existing code, else NTnn style terms (created if missing). */
+function terms(db: DB, zterm: string | undefined): { id: number; days: number } | undefined {
+  if (!zterm) return undefined;
+  const t = db.prepare('SELECT id, net_days FROM payment_terms WHERE code = ?').get(zterm.toUpperCase()) as { id: number; net_days: number } | undefined;
+  if (t) return { id: t.id, days: t.net_days };
+  const days = termsDays(zterm)!;
+  const code = `NT${String(days).padStart(2, '0')}`;
+  db.prepare('INSERT OR IGNORE INTO payment_terms(code, description, net_days) VALUES (?, ?, ?)').run(code, `Net ${days} days`, days);
+  const c = db.prepare('SELECT id, net_days FROM payment_terms WHERE code = ?').get(code) as { id: number; net_days: number };
+  return { id: c.id, days: c.net_days };
+}
 
 function termsDays(zterm: string | undefined) {
   if (!zterm) return undefined;
@@ -756,7 +780,8 @@ export function inboundTemplate(db: DB, kind: string, params: { poId?: number; c
       const mats = db
         .prepare(
           `SELECT m.code, m.name, m.uom, m.sales_price FROM materials m
-           WHERE m.is_active = 1 AND m.sales_price > 0 AND (SELECT COALESCE(SUM(qty), 0) FROM stock s WHERE s.material_id = m.id) > 0 ORDER BY m.code LIMIT 2`,
+           LEFT JOIN material_types t ON t.code = m.material_type
+           WHERE m.is_active = 1 AND m.sales_price > 0 AND COALESCE(t.sellable, 1) = 1 AND (SELECT COALESCE(SUM(qty), 0) FROM stock s WHERE s.material_id = m.id) > 0 ORDER BY m.code LIMIT 2`,
         )
         .all() as any[];
       if (!mats.length) throw badRequest('No material with a list price and stock is available to order');
@@ -827,6 +852,7 @@ export function inboundTemplate(db: DB, kind: string, params: { poId?: number; c
           segments: [
             seg('E1EDK01', { CURCY: cur, BSART: 'INVO', BELNR: `${p.vendor_code}-INV-${uniq()}` }),
             seg('E1EDK02', { QUALF: '001', BELNR: p.doc_no }),
+            seg('E1EDK04', { MWSKZ: 'V0' }),
             seg('E1EDK03', { IDDAT: '012', DATUM: d8(today()) }),
             ...open.map((l: any) =>
               seg('E1EDP01', { POSEX: pad(l.line_no, 6), MENGE: qtyStr(l.open), MENEE: l.uom, VPREI: amt(l.unit_price), NETWR: amt(fromCents(Math.round(l.open * l.unit_price * 100))) }, [

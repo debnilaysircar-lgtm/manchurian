@@ -176,3 +176,48 @@ export function ApAging() {
     </div>
   );
 }
+
+export function CostCenterReport() {
+  const [to, setTo] = useState(todayIso());
+  const [from, setFrom] = useState(`${todayIso().slice(0, 4)}-01-01`);
+  const { data, error } = useApi<any>(`/reports/cost-centers${qs({ from, to })}`);
+  return (
+    <div>
+      <PageHeader title="Cost Center Report" subtitle="Actual costs and revenues per cost center and G/L account" />
+      <ErrorBanner error={error} />
+      <div className="mb-4 flex flex-wrap gap-3">
+        <Field label="Period from"><input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+        <Field label="Period to"><input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+      </div>
+      {!data ? <Loading /> : (
+        <>
+          {data.unassignedExpenses !== 0 && (
+            <p className="mb-3 text-sm text-slate-600">
+              Expenses without a cost center in this period: <span className="font-medium tabular-nums">{fmtMoney(data.unassignedExpenses)}</span>
+            </p>
+          )}
+          {!data.centers.length ? <Card><Empty>No postings with a cost center in this period</Empty></Card> : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {data.centers.map((c: any) => (
+                <Card key={c.id} title={<><span className="font-mono">{c.code}</span> {c.name}</>} actions={<span className="text-sm font-semibold tabular-nums">{fmtMoney(c.total)}</span>}>
+                  <table className="tbl">
+                    <thead><tr><th>Account</th><th className="num">Postings</th><th className="num">Amount</th></tr></thead>
+                    <tbody>
+                      {c.accounts.map((a: any) => (
+                        <tr key={a.code}>
+                          <td><span className="font-mono">{a.code}</span> {a.name}</td>
+                          <td className="num">{a.postings}</td>
+                          <td className="num">{fmtMoney(a.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

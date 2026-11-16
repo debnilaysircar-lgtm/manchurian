@@ -8,6 +8,8 @@ type FieldDef = {
   label: string;
   type?: 'text' | 'number' | 'email' | 'password' | 'select' | 'checkbox' | 'textarea';
   options?: string[];
+  /** Options loaded from configuration, e.g. payment terms. */
+  lookup?: { endpoint: string; label: (r: any) => string; value?: string; filter?: (r: any) => boolean; optional?: boolean };
   default?: unknown;
   /** Field locked once the record exists (keys). */
   immutable?: boolean;
@@ -151,7 +153,9 @@ function EditModal({ title, endpoint, fields, initial, onClose, onSaved }: {
               );
             return (
               <Field key={f.name} label={label} className={f.type === 'textarea' ? 'sm:col-span-2' : ''}>
-                {f.type === 'select' ? (
+                {f.lookup ? (
+                  <LookupSelect def={f.lookup} value={form[f.name]} onChange={set} />
+                ) : f.type === 'select' ? (
                   <select className="input" value={form[f.name]} disabled={disabled} onChange={(e) => set(e.target.value)}>
                     {f.options!.map((o) => (
                       <option key={o}>{o}</option>
@@ -201,7 +205,7 @@ export const Vendors = () => (
       { name: 'email', label: 'Email', type: 'email' },
       { name: 'phone', label: 'Phone' },
       { name: 'tax_id', label: 'Tax ID' },
-      { name: 'payment_terms_days', label: 'Payment terms (days)', type: 'number', default: 30 },
+      { name: 'payment_terms_id', label: 'Payment terms', lookup: { endpoint: '/payment-terms', label: (t) => `${t.code} ${t.description}` } },
       { name: 'address', label: 'Address', type: 'textarea' },
       { name: 'is_active', label: 'Active (unblocked for purchasing)', type: 'checkbox' },
     ]}
@@ -209,7 +213,7 @@ export const Vendors = () => (
       { label: 'Vendor', render: (r) => <span className="font-mono">{r.code}</span> },
       { label: 'Name', render: (r) => r.name },
       { label: 'Email', render: (r) => r.email },
-      { label: 'Terms', render: (r) => `Net ${r.payment_terms_days}` },
+      { label: 'Terms', render: (r) => r.payment_terms_code ?? `Net ${r.payment_terms_days}` },
       { label: 'Open payables', render: (r) => fmtMoney(r.open_balance), num: true },
       { label: 'Status', render: active },
     ]}
@@ -229,7 +233,8 @@ export const Customers = () => (
       { name: 'email', label: 'Email', type: 'email' },
       { name: 'phone', label: 'Phone' },
       { name: 'tax_id', label: 'Tax ID' },
-      { name: 'payment_terms_days', label: 'Payment terms (days)', type: 'number', default: 30 },
+      { name: 'payment_terms_id', label: 'Payment terms', lookup: { endpoint: '/payment-terms', label: (t) => `${t.code} ${t.description}` } },
+      { name: 'tax_code_id', label: 'Output tax code', lookup: { endpoint: '/tax-codes', label: (t) => `${t.code} ${t.description}`, filter: (t) => t.direction === 'OUTPUT' } },
       { name: 'credit_limit', label: 'Credit limit', type: 'number', default: 0 },
       { name: 'address', label: 'Address', type: 'textarea' },
       { name: 'is_active', label: 'Active (unblocked for sales)', type: 'checkbox' },
@@ -238,7 +243,8 @@ export const Customers = () => (
       { label: 'Customer', render: (r) => <span className="font-mono">{r.code}</span> },
       { label: 'Name', render: (r) => r.name },
       { label: 'Email', render: (r) => r.email },
-      { label: 'Terms', render: (r) => `Net ${r.payment_terms_days}` },
+      { label: 'Terms', render: (r) => r.payment_terms_code ?? `Net ${r.payment_terms_days}` },
+      { label: 'Tax', render: (r) => r.tax_code ?? '—' },
       { label: 'Credit limit', render: (r) => (r.credit_limit ? fmtMoney(r.credit_limit) : '—'), num: true },
       { label: 'Open receivables', render: (r) => fmtMoney(r.open_balance), num: true },
       { label: 'Status', render: active },
@@ -256,8 +262,9 @@ export const Materials = () => (
     fields={[
       { name: 'code', label: 'Material number', immutable: true },
       { name: 'name', label: 'Description' },
-      { name: 'uom', label: 'Base unit of measure', default: 'EA' },
+      { name: 'uom', label: 'Base unit of measure', default: 'EA', lookup: { endpoint: '/units', value: 'code', label: (u) => `${u.code} ${u.description}`, optional: false } },
       { name: 'material_type', label: 'Material type', type: 'select', options: ['RAW', 'TRADING', 'FINISHED', 'CONSUMABLE'], default: 'RAW' },
+      { name: 'material_group_id', label: 'Material group', lookup: { endpoint: '/material-groups', label: (g) => `${g.code} ${g.description}` } },
       { name: 'reorder_level', label: 'Reorder level', type: 'number', default: 0 },
       { name: 'sales_price', label: 'Sales list price', type: 'number', default: 0 },
       { name: 'is_active', label: 'Active', type: 'checkbox' },
@@ -266,31 +273,12 @@ export const Materials = () => (
       { label: 'Material', render: (r) => <span className="font-mono">{r.code}</span> },
       { label: 'Description', render: (r) => r.name },
       { label: 'Type', render: (r) => r.material_type },
+      { label: 'Group', render: (r) => r.material_group ?? '—' },
       { label: 'Stock', render: (r) => `${fmtQty(r.total_qty)} ${r.uom}`, num: true },
       { label: 'Reorder at', render: (r) => fmtQty(r.reorder_level), num: true },
       { label: 'List price', render: (r) => fmtMoney(r.sales_price), num: true },
       { label: 'Stock value', render: (r) => fmtMoney(r.stock_value), num: true },
       { label: 'Status', render: active },
-    ]}
-  />
-);
-
-export const Warehouses = () => (
-  <MasterDataPage
-    title="Warehouses"
-    subtitle="Storage locations"
-    endpoint="/warehouses"
-    writers={['warehouse']}
-    search={(r) => `${r.code} ${r.name}`}
-    fields={[
-      { name: 'code', label: 'Code', immutable: true },
-      { name: 'name', label: 'Name' },
-      { name: 'address', label: 'Address', type: 'textarea' },
-    ]}
-    columns={[
-      { label: 'Code', render: (r) => <span className="font-mono">{r.code}</span> },
-      { label: 'Name', render: (r) => r.name },
-      { label: 'Address', render: (r) => r.address },
     ]}
   />
 );
@@ -339,3 +327,16 @@ export const Users = () => (
     ]}
   />
 );
+
+function LookupSelect({ def, value, onChange }: { def: NonNullable<FieldDef['lookup']>; value: any; onChange: (v: any) => void }) {
+  const { data } = useApi<any[]>(def.endpoint);
+  const key = def.value ?? 'id';
+  return (
+    <select className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{def.optional === false ? 'Select…' : 'None'}</option>
+      {data?.filter(def.filter ?? (() => true)).map((r) => (
+        <option key={r[key]} value={r[key]}>{def.label(r)}</option>
+      ))}
+    </select>
+  );
+}

@@ -5,6 +5,7 @@ import { requireRole } from '../auth.ts';
 import { badRequest, handle, parse } from '../lib/errors.ts';
 import * as cfg from '../services/config.ts';
 import * as idoc from '../services/idoc.ts';
+import * as cust from '../services/customizing.ts';
 
 const pid = (v: string) => {
   const n = Number(v);
@@ -31,6 +32,13 @@ export function integrationRoutes(db: DB) {
     const { nextNo } = parse(z.object({ nextNo: z.coerce.number() }), req.body);
     cfg.setNumberRange(db, req.params.object, nextNo);
   }));
+
+  // ---------- customizing tables ----------
+  r.get('/customizing', handle((req) => cust.listObjects(req.user!.role)));
+  r.get('/customizing/:key', handle((req) => cust.getObject(db, req.params.key)));
+  r.post('/customizing/:key', handle((req) => cust.saveRow(db, req.params.key, null, parse(z.record(z.string(), z.unknown()), req.body), req.user!.role)));
+  r.put('/customizing/:key/:id', handle((req) => cust.saveRow(db, req.params.key, pid(req.params.id), parse(z.record(z.string(), z.unknown()), req.body), req.user!.role)));
+  r.delete('/customizing/:key/:id', handle((req) => cust.deleteRow(db, req.params.key, pid(req.params.id), req.user!.role)));
 
   // ---------- IDoc configuration ----------
   r.get('/idoc-meta', handle(() => ({ messageTypes: idoc.MESSAGE_TYPES, statuses: idoc.STATUS_TEXT })));

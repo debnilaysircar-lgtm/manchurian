@@ -97,6 +97,8 @@ export function CustomerInvoiceDetail() {
             <tr key={i}><td>{l.description}</td><td className="num">{fmtQty(l.qty)}</td><td className="num">{fmtMoney(l.unit_price)}</td><td className="num">{fmtMoney(l.amount)}</td></tr>
           ))}</tbody>
           <tfoot>
+            {inv.tax_amount > 0 && <tr><td colSpan={3} className="px-3 py-1 text-right text-slate-500">Net amount</td><td className="num px-3">{fmtMoney(inv.net_amount)}</td></tr>}
+            {inv.tax_amount > 0 && <tr><td colSpan={3} className="px-3 py-1 text-right text-slate-500">Tax {inv.tax_code}</td><td className="num px-3">{fmtMoney(inv.tax_amount)}</td></tr>}
             <tr className="font-semibold"><td colSpan={3} className="px-3 py-2 text-right">Total {dash?.currency ?? ''}</td><td className="num px-3">{fmtMoney(inv.total)}</td></tr>
             {inv.paid_amount > 0 && <tr><td colSpan={3} className="px-3 py-1 text-right text-slate-500">Paid</td><td className="num px-3">{fmtMoney(inv.paid_amount)}</td></tr>}
             {inv.paid_amount > 0 && <tr className="font-semibold"><td colSpan={3} className="px-3 py-1 text-right">Balance due</td><td className="num px-3">{fmtMoney(inv.open_amount)}</td></tr>}

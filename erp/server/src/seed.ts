@@ -37,21 +37,40 @@ function seedProcurementDemo(db: DB) {
     user.run('paul', pw, 'Paul Purchasing', 'purchasing');
     user.run('wendy', pw, 'Wendy Warehouse', 'warehouse');
 
-    const wh = db.prepare('INSERT INTO warehouses(code, name, address) VALUES (?, ?, ?)');
-    const main = Number(wh.run('WH01', 'Main Warehouse', '1 Industrial Park').lastInsertRowid);
-    const east = Number(wh.run('WH02', 'East Distribution Center', '200 Logistics Way').lastInsertRowid);
+    // Enterprise structure and customizing for the demo
+    const plant1 = (db.prepare("SELECT id FROM plants WHERE code = '1000'").get() as { id: number }).id;
+    db.prepare("UPDATE plants SET name = 'Main Plant', address = '1 Industrial Park' WHERE id = ?").run(plant1);
+    const plant2 = Number(db.prepare("INSERT INTO plants(code, name, country, address) VALUES ('2000', 'East Distribution', 'US', '200 Logistics Way')").run().lastInsertRowid);
+    const wh = db.prepare('INSERT INTO warehouses(code, name, address, plant_id) VALUES (?, ?, ?, ?)');
+    const main = Number(wh.run('WH01', 'Main Warehouse', '1 Industrial Park', plant1).lastInsertRowid);
+    const east = Number(wh.run('WH02', 'East Distribution Center', '200 Logistics Way', plant2).lastInsertRowid);
+    const pg = db.prepare('INSERT INTO purchasing_groups(code, name, buyer, email, release_limit) VALUES (?, ?, ?, ?, ?)');
+    const pgRaw = Number(pg.run('001', 'Raw materials', 'Paul Purchasing', 'paul@example.com', 1000000).lastInsertRowid);
+    const pgPack = Number(pg.run('002', 'Packaging & supplies', 'Paul Purchasing', 'paul@example.com', null).lastInsertRowid);
+    const cc = db.prepare('INSERT INTO cost_centers(code, name, responsible) VALUES (?, ?, ?)');
+    const ccProd = Number(cc.run('CC1000', 'Production', 'Wendy Warehouse').lastInsertRowid);
+    const ccAdmin = Number(cc.run('CC2000', 'Administration', 'Fiona Finance').lastInsertRowid);
+    cc.run('CC3000', 'Sales', 'Sam Sales');
+    const mg = db.prepare('INSERT INTO material_groups(code, description) VALUES (?, ?)');
+    const mgSteel = Number(mg.run('STEEL', 'Steel and metal parts').lastInsertRowid);
+    const mgPack = Number(mg.run('PACK', 'Packaging').lastInsertRowid);
+    const mgElec = Number(mg.run('ELEC', 'Electronics').lastInsertRowid);
+    const mgShelf = Number(mg.run('SHELV', 'Shelving and storage').lastInsertRowid);
+    db.prepare("UPDATE sales_areas SET default_warehouse_id = ? WHERE sales_org = '1000' AND distr_channel = '10'").run(main);
+    db.prepare("INSERT INTO sales_areas(sales_org, distr_channel, division, name, default_warehouse_id) VALUES ('1000', '20', '00', 'Wholesale', ?)").run(east);
+    const terms = (code: string) => (db.prepare('SELECT id FROM payment_terms WHERE code = ?').get(code) as { id: number }).id;
 
-    const v = db.prepare('INSERT INTO vendors(code, name, email, phone, address, payment_terms_days) VALUES (?, ?, ?, ?, ?, ?)');
-    const steel = Number(v.run('V1000', 'Acme Steel Supply', 'orders@acmesteel.example', '+1 555 0100', '12 Foundry Rd', 30).lastInsertRowid);
-    const pack = Number(v.run('V1001', 'PackRight Packaging', 'sales@packright.example', '+1 555 0101', '8 Carton St', 45).lastInsertRowid);
-    v.run('V1002', 'Global Electronics Components', 'info@gec.example', '+1 555 0102', '77 Circuit Ave', 60);
+    const v = db.prepare('INSERT INTO vendors(code, name, email, phone, address, payment_terms_days, payment_terms_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const steel = Number(v.run('V1000', 'Acme Steel Supply', 'orders@acmesteel.example', '+1 555 0100', '12 Foundry Rd', 30, terms('NT30')).lastInsertRowid);
+    const pack = Number(v.run('V1001', 'PackRight Packaging', 'sales@packright.example', '+1 555 0101', '8 Carton St', 45, terms('NT45')).lastInsertRowid);
+    v.run('V1002', 'Global Electronics Components', 'info@gec.example', '+1 555 0102', '77 Circuit Ave', 60, terms('NT60'));
 
-    const m = db.prepare('INSERT INTO materials(code, name, uom, material_type, reorder_level) VALUES (?, ?, ?, ?, ?)');
-    const sheet = Number(m.run('RM-1001', 'Steel Sheet 2mm', 'KG', 'RAW', 500).lastInsertRowid);
-    const bolt = Number(m.run('RM-1002', 'Hex Bolt M8', 'EA', 'RAW', 2000).lastInsertRowid);
-    const box = Number(m.run('PK-2001', 'Shipping Carton Large', 'EA', 'CONSUMABLE', 300).lastInsertRowid);
-    m.run('EL-3001', 'Control Board v2', 'EA', 'RAW', 50);
-    m.run('FG-9001', 'Industrial Cabinet', 'EA', 'FINISHED', 0);
+    const m = db.prepare('INSERT INTO materials(code, name, uom, material_type, reorder_level, material_group_id) VALUES (?, ?, ?, ?, ?, ?)');
+    const sheet = Number(m.run('RM-1001', 'Steel Sheet 2mm', 'KG', 'RAW', 500, mgSteel).lastInsertRowid);
+    const bolt = Number(m.run('RM-1002', 'Hex Bolt M8', 'EA', 'RAW', 2000, mgSteel).lastInsertRowid);
+    const box = Number(m.run('PK-2001', 'Shipping Carton Large', 'EA', 'CONSUMABLE', 300, mgPack).lastInsertRowid);
+    m.run('EL-3001', 'Control Board v2', 'EA', 'RAW', 50, mgElec);
+    m.run('FG-9001', 'Industrial Cabinet', 'EA', 'FINISHED', 0, mgShelf);
 
     // Opening capital
     postJournal(db, {
@@ -60,7 +79,7 @@ function seedProcurementDemo(db: DB) {
     }, 1);
     postJournal(db, {
       postingDate: d(-30), source: 'MANUAL', description: 'Office rent', reference: 'RENT-01',
-      lines: [{ accountId: acc('610000'), debit: 350000 }, { accountId: acc('110000'), credit: 350000 }],
+      lines: [{ accountId: acc('610000'), debit: 350000, costCenterId: ccAdmin }, { accountId: acc('110000'), credit: 350000 }],
     }, 1);
 
     // Initial stock
@@ -70,7 +89,7 @@ function seedProcurementDemo(db: DB) {
     ] }, 1);
 
     // Full procure-to-pay cycle
-    const po1 = createPO(db, { vendorId: steel, warehouseId: main, orderDate: d(-40), deliveryDate: d(-30), lines: [
+    const po1 = createPO(db, { vendorId: steel, warehouseId: main, purchasingGroupId: pgRaw, orderDate: d(-40), deliveryDate: d(-30), lines: [
       { materialId: sheet, qty: 1000, unitPrice: 360 },
       { materialId: bolt, qty: 10000, unitPrice: 11 },
     ] }, 3);
@@ -84,17 +103,17 @@ function seedProcurementDemo(db: DB) {
     postPayment(db, inv1.id, { amount: 200000, paymentDate: d(-5), reference: 'WIRE-5531' }, 2);
 
     // Partially received PO, invoice still open
-    const po2 = createPO(db, { vendorId: pack, warehouseId: east, orderDate: d(-20), deliveryDate: d(5), lines: [{ materialId: box, qty: 1000, unitPrice: 95 }] }, 3);
+    const po2 = createPO(db, { vendorId: pack, warehouseId: east, purchasingGroupId: pgPack, orderDate: d(-20), deliveryDate: d(5), lines: [{ materialId: box, qty: 1000, unitPrice: 95 }] }, 3);
     setPOStatus(db, po2.id, 'release');
     const l2 = db.prepare('SELECT id FROM po_lines WHERE po_id = ?').get(po2.id) as { id: number };
     postGoodsReceipt(db, po2.id, { postingDate: d(-10), lines: [{ poLineId: l2.id, qty: 400 }] }, 4);
     postInvoice(db, po2.id, { vendorRef: 'PR-2024-117', invoiceDate: d(-9), dueDate: d(-2), lines: [{ poLineId: l2.id, qty: 400, unitPrice: 95 }] }, 2);
 
     // Draft PO
-    createPO(db, { vendorId: steel, warehouseId: main, deliveryDate: d(14), notes: 'Q-next restock', lines: [{ materialId: sheet, qty: 500, unitPrice: 360 }] }, 3);
+    createPO(db, { vendorId: steel, warehouseId: main, purchasingGroupId: pgRaw, deliveryDate: d(14), notes: 'Q-next restock', lines: [{ materialId: sheet, qty: 500, unitPrice: 360 }] }, 3);
 
     // Consumption
-    postGoodsMovement(db, { movementType: '201', warehouseId: main, postingDate: d(-3), note: 'Production order 1001', items: [
+    postGoodsMovement(db, { movementType: '201', warehouseId: main, postingDate: d(-3), note: 'Production order 1001', costCenterId: ccProd, items: [
       { materialId: sheet, qty: 1350 },
       { materialId: bolt, qty: 4000 },
     ] }, 4);
@@ -132,10 +151,13 @@ function seedSalesDemo(db: DB) {
     db.prepare("UPDATE materials SET sales_price = 250 WHERE code = 'PK-2001' AND sales_price = 0").run();
     postGoodsMovement(db, { movementType: '561', warehouseId: wh, postingDate: d(-35), note: 'Trading stock take-over', items: [{ materialId: shelf, qty: 200, amount: 900000 }] }, 1);
 
-    const c = db.prepare('INSERT INTO customers(code, name, email, phone, address, payment_terms_days, credit_limit) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    const northwind = Number(c.run('C1000', 'Northwind Retail', 'ap@northwind.example', '+1 555 0200', '5 Market Sq', 30, 2000000).lastInsertRowid);
-    const contoso = Number(c.run('C1001', 'Contoso Builders', 'billing@contoso.example', '+1 555 0201', '90 Builder Blvd', 14, 500000).lastInsertRowid);
-    const fabrikam = Number(c.run('C1002', 'Fabrikam Hardware', 'finance@fabrikam.example', '+1 555 0202', '3 Hammer Ln', 45, 0).lastInsertRowid);
+    db.prepare("UPDATE materials SET material_group_id = (SELECT id FROM material_groups WHERE code = 'SHELV') WHERE code IN ('TG-4001', 'FG-9001')").run();
+    const c = db.prepare(`INSERT INTO customers(code, name, email, phone, address, payment_terms_days, credit_limit, payment_terms_id, tax_code_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT id FROM payment_terms WHERE net_days = ? ORDER BY id LIMIT 1), (SELECT id FROM tax_codes WHERE code = ?))`);
+    const northwind = Number(c.run('C1000', 'Northwind Retail', 'ap@northwind.example', '+1 555 0200', '5 Market Sq', 30, 2000000, 30, 'A1').lastInsertRowid);
+    const contoso = Number(c.run('C1001', 'Contoso Builders', 'billing@contoso.example', '+1 555 0201', '90 Builder Blvd', 14, 500000, 14, 'A0').lastInsertRowid);
+    const fabrikam = Number(c.run('C1002', 'Fabrikam Hardware', 'finance@fabrikam.example', '+1 555 0202', '3 Hammer Ln', 45, 0, 45, null).lastInsertRowid);
+    const wholesale = (db.prepare("SELECT id FROM sales_areas WHERE distr_channel = '20'").get() as { id: number } | undefined)?.id ?? null;
 
     // Fully delivered and billed, partially paid
     const so1 = createSO(db, { customerId: northwind, warehouseId: wh, orderDate: d(-22), customerRef: 'NW-PO-7781', lines: [{ materialId: shelf, qty: 50 }] }, sam);
@@ -146,7 +168,7 @@ function seedSalesDemo(db: DB) {
     postReceipt(db, inv1.id, { amount: 200000, receiptDate: d(-3), reference: 'NW-REMIT-118' }, fiona);
 
     // Partially delivered, billed invoice overdue
-    const so2 = createSO(db, { customerId: contoso, warehouseId: wh, orderDate: d(-28), customerRef: 'CB-2291', lines: [{ materialId: shelf, qty: 30, unitPrice: 7500 }] }, sam);
+    const so2 = createSO(db, { customerId: contoso, warehouseId: wh, orderDate: d(-28), customerRef: 'CB-2291', salesAreaId: wholesale, lines: [{ materialId: shelf, qty: 30, unitPrice: 7500 }] }, sam);
     setSOStatus(db, so2.id, 'confirm');
     const l2 = db.prepare('SELECT id FROM so_lines WHERE so_id = ?').get(so2.id) as { id: number };
     postDelivery(db, so2.id, { postingDate: d(-25), lines: [{ soLineId: l2.id, qty: 20 }] }, wendy);

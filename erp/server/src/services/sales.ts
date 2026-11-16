@@ -21,8 +21,16 @@ export interface SOInput {
   requestedDate?: string | null;
   customerRef?: string | null;
   notes?: string | null;
+  /** Sales organization / distribution channel / division; omitted = first sales area. */
+  salesAreaId?: number | null;
   /** unitPrice in cents; omitted = material list price */
   lines: { materialId: number; qty: number; unitPrice?: number }[];
+}
+
+/** Validated sales area id, defaulting to the first one. */
+function salesArea(db: DB, id: number | null | undefined): number | null {
+  if (id) return id;
+  return (db.prepare('SELECT MIN(id) id FROM sales_areas').get() as { id: number | null }).id;
 }
 
 function getSORow(db: DB, id: number) {
@@ -40,11 +48,14 @@ function getCustomer(db: DB, id: number) {
 function validateSO(db: DB, input: SOInput) {
   const c = getCustomer(db, input.customerId);
   if (!c.is_active) throw badRequest('Customer is blocked');
-  if (!db.prepare('SELECT 1 FROM warehouses WHERE id = ?').get(input.warehouseId)) throw notFound('Warehouse');
+  if (!db.prepare('SELECT 1 FROM warehouses WHERE id = ?').get(input.warehouseId)) throw notFound('Storage location');
+  if (input.salesAreaId && !db.prepare('SELECT 1 FROM sales_areas WHERE id = ?').get(input.salesAreaId)) throw notFound('Sales area');
   if (!input.lines.length) throw badRequest('A sales order needs at least one line');
   for (const l of input.lines) {
     const m = getMaterial(db, l.materialId);
     if (!m.is_active) throw badRequest(`Material ${m.code} is inactive`);
+    const mt = db.prepare('SELECT m.material_type, t.sellable FROM materials m LEFT JOIN material_types t ON t.code = m.material_type WHERE m.id = ?').get(m.id) as any;
+    if (mt?.sellable === 0) throw badRequest(`Material ${m.code} has type ${mt.material_type}, which cannot be sold (see Configuration > Material types)`);
     if (!(l.qty > 0)) throw badRequest(`Quantity for ${m.code} must be positive`);
     if (l.unitPrice != null && !(l.unitPrice >= 0)) throw badRequest(`Price for ${m.code} must not be negative`);
   }
@@ -67,10 +78,10 @@ export function createSO(db: DB, input: SOInput, userId: number | null) {
     const docNo = nextNumber(db, 'SO');
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO sales_orders(doc_no, customer_id, warehouse_id, order_date, requested_date, customer_ref, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sales_orders(doc_no, customer_id, warehouse_id, order_date, requested_date, customer_ref, notes, sales_area_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(docNo, input.customerId, input.warehouseId, input.orderDate ?? today(), input.requestedDate ?? null, input.customerRef ?? null, input.notes ?? null, userId);
+      .run(docNo, input.customerId, input.warehouseId, input.orderDate ?? today(), input.requestedDate ?? null, input.customerRef ?? null, input.notes ?? null, salesArea(db, input.salesAreaId), userId);
     insertLines(db, Number(lastInsertRowid), input.lines);
     return { id: Number(lastInsertRowid), docNo };
   })();
@@ -81,13 +92,14 @@ export function updateSO(db: DB, id: number, input: SOInput) {
   if (so.status !== 'DRAFT') throw badRequest('Only draft sales orders can be changed');
   validateSO(db, input);
   db.transaction(() => {
-    db.prepare('UPDATE sales_orders SET customer_id=?, warehouse_id=?, order_date=?, requested_date=?, customer_ref=?, notes=? WHERE id=?').run(
+    db.prepare('UPDATE sales_orders SET customer_id=?, warehouse_id=?, order_date=?, requested_date=?, customer_ref=?, notes=?, sales_area_id=? WHERE id=?').run(
       input.customerId,
       input.warehouseId,
       input.orderDate ?? so.order_date,
       input.requestedDate ?? null,
       input.customerRef ?? null,
       input.notes ?? null,
+      salesArea(db, input.salesAreaId ?? so.sales_area_id),
       id,
     );
     db.prepare('DELETE FROM so_lines WHERE so_id = ?').run(id);
@@ -145,8 +157,11 @@ export function getSO(db: DB, id: number) {
   const so = db
     .prepare(
       `SELECT so.*, c.code AS customer_code, c.name AS customer_name, c.credit_limit / 100.0 AS credit_limit,
-              w.code AS warehouse_code, w.name AS warehouse_name, u.full_name AS created_by_name
+              w.code AS warehouse_code, w.name AS warehouse_name, u.full_name AS created_by_name,
+              sa.sales_org || '/' || sa.distr_channel || '/' || sa.division AS sales_area, sa.name AS sales_area_name,
+              (SELECT code || ' ' || rate_pct || '%' FROM tax_codes t WHERE t.id = c.tax_code_id) AS customer_tax_code, c.tax_code_id AS customer_tax_code_id
        FROM sales_orders so JOIN customers c ON c.id = so.customer_id JOIN warehouses w ON w.id = so.warehouse_id
+       LEFT JOIN sales_areas sa ON sa.id = so.sales_area_id
        LEFT JOIN users u ON u.id = so.created_by WHERE so.id = ?`,
     )
     .get(id) as any;
@@ -180,6 +195,7 @@ export function listSOs(db: DB, q: { status?: string; customerId?: number; searc
   return db
     .prepare(
       `SELECT so.id, so.doc_no, so.order_date, so.requested_date, so.customer_ref, so.status, c.name AS customer_name, w.code AS warehouse_code,
+              (SELECT sales_org || '/' || distr_channel || '/' || division FROM sales_areas sa WHERE sa.id = so.sales_area_id) AS sales_area,
               ROUND(SUM(ROUND(sl.qty * sl.unit_price))) / 100.0 AS total,
               CASE WHEN SUM(sl.qty) > 0 THEN ROUND(100.0 * SUM(sl.delivered_qty) / SUM(sl.qty)) ELSE 0 END AS delivered_pct,
               CASE WHEN SUM(sl.qty) > 0 THEN ROUND(100.0 * SUM(sl.billed_qty) / SUM(sl.qty)) ELSE 0 END AS billed_pct
@@ -250,6 +266,8 @@ export interface BillingInput {
   dueDate?: string;
   /** Lines to bill; omitted = everything delivered but not yet billed. */
   lines?: { soLineId: number; qty: number }[];
+  /** Output tax code; omitted = the customer's tax code (none = no tax). */
+  taxCodeId?: number | null;
 }
 
 /** Delivery-based billing at the order price. Dr Accounts receivable (customer) / Cr Sales revenue. */
@@ -284,6 +302,16 @@ export function postBilling(db: DB, soId: number, input: BillingInput, userId: n
       ilines.push({ soLineId: sl.id, qty, unitPrice: sl.unit_price, amount, desc: `${mat.code} ${mat.name}` });
     }
     if (total <= 0) throw badRequest('Invoice total must be positive');
+    const taxCodeId = input.taxCodeId === undefined ? customer.tax_code_id : input.taxCodeId;
+    let tax = 0;
+    if (taxCodeId) {
+      const tc = db.prepare('SELECT * FROM tax_codes WHERE id = ?').get(taxCodeId) as any;
+      if (!tc) throw badRequest('Tax code does not exist');
+      if (tc.direction !== 'OUTPUT') throw badRequest(`Tax code ${tc.code} is an input tax code; customer invoices need an output tax code`);
+      tax = Math.round((total * tc.rate_pct) / 100);
+      if (tax > 0) jlines.push({ accountId: tc.account_id, credit: tax, memo: `Output tax ${tc.code} ${tc.rate_pct}%`, customerId: customer.id });
+    }
+    total += tax;
     jlines.unshift({ accountId: ar, debit: total, memo: `Customer ${customer.code} invoice ${docNo}`, customerId: customer.id });
 
     const journal = postJournal(
@@ -293,10 +321,10 @@ export function postBilling(db: DB, soId: number, input: BillingInput, userId: n
     );
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO customer_invoices(doc_no, customer_id, so_id, invoice_date, due_date, total, journal_entry_id, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO customer_invoices(doc_no, customer_id, so_id, invoice_date, due_date, total, tax_code_id, tax_amount, journal_entry_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(docNo, customer.id, soId, invoiceDate, dueDate, total, journal.id, userId);
+      .run(docNo, customer.id, soId, invoiceDate, dueDate, total, taxCodeId ?? null, tax, journal.id, userId);
     const invId = Number(lastInsertRowid);
     const ins = db.prepare('INSERT INTO customer_invoice_lines(invoice_id, so_line_id, description, qty, unit_price, amount) VALUES (?, ?, ?, ?, ?, ?)');
     ilines.forEach((l) => ins.run(invId, l.soLineId, l.desc, l.qty, l.unitPrice, l.amount));
@@ -306,6 +334,8 @@ export function postBilling(db: DB, soId: number, input: BillingInput, userId: n
 
 const INVOICE_COLS = `ci.id, ci.doc_no, ci.customer_id, ci.so_id, ci.invoice_date, ci.due_date, ci.status, ci.journal_entry_id, ci.created_at,
   ci.total / 100.0 AS total, ci.paid_amount / 100.0 AS paid_amount, (ci.total - ci.paid_amount) / 100.0 AS open_amount,
+  (ci.total - ci.tax_amount) / 100.0 AS net_amount, ci.tax_amount / 100.0 AS tax_amount,
+  (SELECT code || ' ' || rate_pct || '%' FROM tax_codes t WHERE t.id = ci.tax_code_id) AS tax_code,
   c.code AS customer_code, c.name AS customer_name, so.doc_no AS so_doc_no, so.customer_ref, je.doc_no AS journal_doc_no`;
 const INVOICE_FROM = `FROM customer_invoices ci JOIN customers c ON c.id = ci.customer_id
   LEFT JOIN sales_orders so ON so.id = ci.so_id LEFT JOIN journal_entries je ON je.id = ci.journal_entry_id`;

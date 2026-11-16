@@ -15,6 +15,7 @@ const NAV: { section: string; items: { to: string; label: string; admin?: boolea
       { to: '/finance/ledger', label: 'Account Ledger' },
       { to: '/finance/statements', label: 'Financial Statements' },
       { to: '/finance/ap-aging', label: 'AP Aging' },
+      { to: '/finance/cost-centers', label: 'Cost Center Report' },
     ],
   },
   {
@@ -40,7 +41,7 @@ const NAV: { section: string; items: { to: string; label: string; admin?: boolea
       { to: '/inventory/stock', label: 'Stock Overview' },
       { to: '/inventory/movements', label: 'Goods Movements' },
       { to: '/inventory/materials', label: 'Materials' },
-      { to: '/inventory/warehouses', label: 'Warehouses' },
+      { to: '/config/table/storage_locations', label: 'Storage Locations' },
     ],
   },
   {
@@ -53,11 +54,8 @@ const NAV: { section: string; items: { to: string; label: string; admin?: boolea
   {
     section: 'Configuration',
     items: [
-      { to: '/config/general', label: 'General & Numbering' },
-      { to: '/config/finance', label: 'Finance' },
-      { to: '/config/purchasing', label: 'Purchasing' },
-      { to: '/config/sales', label: 'Sales' },
-      { to: '/config/inventory', label: 'Inventory' },
+      { to: '/config', label: 'Implementation Guide' },
+      { to: '/config/table/plants', label: 'Plants' },
       { to: '/config/idoc', label: 'IDoc & Partners' },
     ],
   },
@@ -99,7 +97,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                   <NavLink
                     key={i.to}
                     to={i.to}
-                    end={i.to === '/'}
+                    end={i.to === '/' || i.to === '/config'}
                     onClick={() => setOpen(false)}
                     className={({ isActive }) =>
                       `block border-l-[3px] px-4 py-1.5 text-sm ${isActive ? 'border-brand-500 bg-brand-50 font-medium text-brand-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`

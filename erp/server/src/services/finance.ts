@@ -1,5 +1,5 @@
 import type { DB } from '../db.ts';
-import { nextNumber } from '../db.ts';
+import { nextNumber, SOURCE_DOC_TYPES } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { fromCents, today } from '../lib/money.ts';
 import { getConfig } from './config.ts';
@@ -12,6 +12,7 @@ export interface JournalLineInput {
   vendorId?: number | null;
   customerId?: number | null;
   materialId?: number | null;
+  costCenterId?: number | null;
 }
 
 export interface JournalInput {
@@ -20,6 +21,8 @@ export interface JournalInput {
   description?: string | null;
   source: string;
   sourceDoc?: string | null;
+  /** FI document type; defaults from the source (SA, WE, RE, ...). */
+  docType?: string;
   lines: JournalLineInput[];
 }
 
@@ -43,27 +46,39 @@ export function postJournal(db: DB, input: JournalInput, userId: number | null):
   if ((periodFrom && postingDate < periodFrom) || (periodTo && postingDate > periodTo))
     throw badRequest(`Posting date ${postingDate} is outside the open posting period (${periodFrom || 'any'} to ${periodTo || 'any'})`);
 
-  const accStmt = db.prepare('SELECT id, is_active FROM accounts WHERE id = ?');
+  const docType = input.docType ?? SOURCE_DOC_TYPES[input.source] ?? 'SA';
+  if (!db.prepare('SELECT 1 FROM fi_document_types WHERE code = ?').get(docType)) throw badRequest(`Document type ${docType} is not defined`);
+
+  const accStmt = db.prepare('SELECT id, code, type, is_active FROM accounts WHERE id = ?');
+  const ccStmt = db.prepare('SELECT code, is_active FROM cost_centers WHERE id = ?');
   for (const l of lines) {
-    const acc = accStmt.get(l.accountId) as { id: number; is_active: number } | undefined;
+    const acc = accStmt.get(l.accountId) as { id: number; code: string; type: string; is_active: number } | undefined;
     if (!acc) throw badRequest(`GL account ${l.accountId} does not exist`);
     if (!acc.is_active) throw badRequest(`GL account ${l.accountId} is blocked for posting`);
+    if (l.costCenterId) {
+      const cc = ccStmt.get(l.costCenterId) as { code: string; is_active: number } | undefined;
+      if (!cc) throw badRequest(`Cost center ${l.costCenterId} does not exist`);
+      if (!cc.is_active) throw badRequest(`Cost center ${cc.code} is closed for postings`);
+      if (!['EXPENSE', 'REVENUE'].includes(acc.type)) throw badRequest(`Account ${acc.code} is a balance sheet account; only expense and revenue lines take a cost center`);
+    }
   }
 
   return db.transaction(() => {
     const docNo = nextNumber(db, 'JE');
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO journal_entries(doc_no, posting_date, reference, description, source, source_doc, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO journal_entries(doc_no, posting_date, reference, description, source, source_doc, doc_type, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(docNo, postingDate, input.reference ?? null, input.description ?? null, input.source, input.sourceDoc ?? null, userId);
+      .run(docNo, postingDate, input.reference ?? null, input.description ?? null, input.source, input.sourceDoc ?? null, docType, userId);
     const id = Number(lastInsertRowid);
     const ins = db.prepare(
-      `INSERT INTO journal_lines(entry_id, line_no, account_id, debit, credit, memo, vendor_id, customer_id, material_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO journal_lines(entry_id, line_no, account_id, debit, credit, memo, vendor_id, customer_id, material_id, cost_center_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    lines.forEach((l, i) => ins.run(id, i + 1, l.accountId, l.debit, l.credit, l.memo ?? null, l.vendorId ?? null, l.customerId ?? null, l.materialId ?? null));
+    lines.forEach((l, i) =>
+      ins.run(id, i + 1, l.accountId, l.debit, l.credit, l.memo ?? null, l.vendorId ?? null, l.customerId ?? null, l.materialId ?? null, l.costCenterId ?? null),
+    );
     return { id, docNo };
   })();
 }
@@ -85,6 +100,7 @@ export function reverseJournal(db: DB, entryId: number, userId: number, postingD
         description: `Reversal of ${e.doc_no}`,
         source: 'REVERSAL',
         sourceDoc: e.doc_no,
+        docType: e.doc_type ?? 'SA',
         lines: lines.map((l) => ({
           accountId: l.account_id,
           debit: l.credit,
@@ -93,6 +109,7 @@ export function reverseJournal(db: DB, entryId: number, userId: number, postingD
           vendorId: l.vendor_id,
           customerId: l.customer_id,
           materialId: l.material_id,
+          costCenterId: l.cost_center_id,
         })),
       },
       userId,
@@ -118,10 +135,11 @@ export function getJournal(db: DB, id: number) {
     .prepare(
       `SELECT jl.line_no, jl.account_id, a.code AS account_code, a.name AS account_name,
               jl.debit / 100.0 AS debit, jl.credit / 100.0 AS credit, jl.memo,
-              v.code AS vendor_code, v.name AS vendor_name, c.code AS customer_code, c.name AS customer_name, m.code AS material_code
+              v.code AS vendor_code, v.name AS vendor_name, c.code AS customer_code, c.name AS customer_name, m.code AS material_code,
+              cc.code AS cost_center_code, cc.name AS cost_center_name
        FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
        LEFT JOIN vendors v ON v.id = jl.vendor_id LEFT JOIN customers c ON c.id = jl.customer_id
-       LEFT JOIN materials m ON m.id = jl.material_id
+       LEFT JOIN materials m ON m.id = jl.material_id LEFT JOIN cost_centers cc ON cc.id = jl.cost_center_id
        WHERE jl.entry_id = ? ORDER BY jl.line_no`,
     )
     .all(id);
@@ -131,7 +149,7 @@ export function getJournal(db: DB, id: number) {
 export function listJournals(db: DB, q: { from?: string; to?: string; source?: string; search?: string }) {
   return db
     .prepare(
-      `SELECT je.id, je.doc_no, je.posting_date, je.reference, je.description, je.source, je.source_doc, je.status,
+      `SELECT je.id, je.doc_no, je.posting_date, je.reference, je.description, je.source, je.source_doc, je.status, je.doc_type,
               SUM(jl.debit) / 100.0 AS amount, u.full_name AS created_by_name
        FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id
        LEFT JOIN users u ON u.id = je.created_by
@@ -220,9 +238,10 @@ export function accountLedger(db: DB, accountId: number, from?: string, to?: str
   const items = db
     .prepare(
       `SELECT je.id AS entry_id, je.doc_no, je.posting_date, je.source, je.reference, COALESCE(jl.memo, je.description) AS text,
-              jl.debit, jl.credit, v.name AS vendor_name, c.name AS customer_name, m.code AS material_code
+              jl.debit, jl.credit, v.name AS vendor_name, c.name AS customer_name, m.code AS material_code, je.doc_type, cc.code AS cost_center_code
        FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
        LEFT JOIN vendors v ON v.id = jl.vendor_id LEFT JOIN customers c ON c.id = jl.customer_id LEFT JOIN materials m ON m.id = jl.material_id
+       LEFT JOIN cost_centers cc ON cc.id = jl.cost_center_id
        WHERE jl.account_id = @acc AND (@from IS NULL OR je.posting_date >= @from) AND (@to IS NULL OR je.posting_date <= @to)
        ORDER BY je.posting_date, je.id, jl.line_no`,
     )
@@ -233,4 +252,38 @@ export function accountLedger(db: DB, accountId: number, from?: string, to?: str
     return { ...i, debit: fromCents(i.debit), credit: fromCents(i.credit), balance: fromCents(running) };
   });
   return { account, openingBalance: fromCents(opening.bal), closingBalance: fromCents(running), lines };
+}
+
+/** Actual costs and revenues per cost center and account for a period (debit-positive). */
+export function costCenterReport(db: DB, from: string, to: string) {
+  const rows = db
+    .prepare(
+      `SELECT cc.id AS cost_center_id, cc.code AS cost_center_code, cc.name AS cost_center_name,
+              a.code AS account_code, a.name AS account_name, a.type AS account_type,
+              SUM(jl.debit - jl.credit) AS amount, COUNT(*) AS postings
+       FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+       JOIN cost_centers cc ON cc.id = jl.cost_center_id JOIN accounts a ON a.id = jl.account_id
+       WHERE je.posting_date BETWEEN ? AND ?
+       GROUP BY cc.id, a.id ORDER BY cc.code, a.code`,
+    )
+    .all(from, to) as any[];
+  const unassigned = db
+    .prepare(
+      `SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS amount FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+       JOIN accounts a ON a.id = jl.account_id WHERE a.type = 'EXPENSE' AND jl.cost_center_id IS NULL AND je.posting_date BETWEEN ? AND ?`,
+    )
+    .get(from, to) as { amount: number };
+  const centers = new Map<number, any>();
+  for (const r of rows) {
+    const c = centers.get(r.cost_center_id) ?? { id: r.cost_center_id, code: r.cost_center_code, name: r.cost_center_name, total: 0, accounts: [] };
+    c.accounts.push({ code: r.account_code, name: r.account_name, type: r.account_type, amount: fromCents(r.amount), postings: r.postings });
+    c.total += r.amount;
+    centers.set(r.cost_center_id, c);
+  }
+  return {
+    from,
+    to,
+    centers: [...centers.values()].map((c) => ({ ...c, total: fromCents(c.total) })),
+    unassignedExpenses: fromCents(unassigned.amount),
+  };
 }

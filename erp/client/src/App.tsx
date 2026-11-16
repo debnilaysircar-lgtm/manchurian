@@ -3,11 +3,12 @@ import { useAuth } from './auth';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import { Accounts, Customers, Materials, Users, Vendors, Warehouses } from './pages/MasterData';
+import { Accounts, Customers, Materials, Users, Vendors } from './pages/MasterData';
+import { CustomizingTable, ImplementationGuide } from './pages/config/Customizing';
 import { SODetail, SOEdit, SOList } from './pages/sales/SalesOrders';
 import { ArAging, CustomerInvoiceDetail, CustomerInvoiceList, ReceiptList } from './pages/sales/Receivables';
 import { JournalDetail, JournalList, JournalNew } from './pages/finance/Journals';
-import { Ledger, Statements, TrialBalance, ApAging } from './pages/finance/Reports';
+import { Ledger, Statements, TrialBalance, ApAging, CostCenterReport } from './pages/finance/Reports';
 import { InvoiceDetail, InvoiceList, PaymentList } from './pages/finance/Payables';
 import AccountDetermination from './pages/finance/AccountDetermination';
 import { PODetail, POEdit, POList } from './pages/purchasing/PurchaseOrders';
@@ -54,9 +55,12 @@ export default function App() {
         <Route path="/inventory/movements" element={<MovementList />} />
         <Route path="/inventory/movements/new" element={<MovementNew />} />
         <Route path="/inventory/materials" element={<Materials />} />
-        <Route path="/inventory/warehouses" element={<Warehouses />} />
+        <Route path="/inventory/warehouses" element={<Navigate to="/config/table/storage_locations" replace />} />
         <Route path="/admin/users" element={<Users />} />
+        <Route path="/config" element={<ImplementationGuide />} />
+        <Route path="/config/table/:key" element={<CustomizingTable />} />
         <Route path="/config/:area" element={<Configuration />} />
+        <Route path="/finance/cost-centers" element={<CostCenterReport />} />
         <Route path="/idocs" element={<IdocMonitor />} />
         <Route path="/idocs/exchange" element={<IdocExchange />} />
         <Route path="/idocs/:id" element={<IdocDetail />} />

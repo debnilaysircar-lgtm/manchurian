@@ -56,6 +56,13 @@ export const CONFIG: Record<string, ConfigDef> = {
   },
   movement_note_required: { area: 'inventory', label: 'Require a note for goods issues and inventory differences', help: 'Applies to movement types 201, 701 and 702.', def: { type: 'boolean', default: false } },
 
+  cost_center_required_gi: {
+    area: 'inventory',
+    label: 'Require a cost center for goods issues',
+    help: 'Movement type 201 must name the cost center that consumes the material.',
+    def: { type: 'boolean', default: false },
+  },
+
   idoc_enabled: { area: 'idoc', label: 'IDoc processing active', help: 'When off, no outbound IDocs are created and inbound IDocs are rejected.', def: { type: 'boolean', default: true } },
   inbound_order_warehouse: { area: 'idoc', label: 'Warehouse for inbound sales orders', help: 'Warehouse code used for sales orders created from ORDERS IDocs. Empty = first warehouse.', def: { type: 'string', default: '' } },
   inbound_order_auto_confirm: { area: 'idoc', label: 'Confirm inbound sales orders automatically', help: 'Runs the normal confirmation (including the credit check) after an ORDERS IDoc creates a sales order.', def: { type: 'boolean', default: false } },

@@ -34,12 +34,12 @@ export function SOList() {
       >
         {loading && !data ? <Loading /> : !data?.length ? <Empty /> : (
           <table className="tbl">
-            <thead><tr><th>Sales order</th><th>Customer</th><th>Customer ref.</th><th>Order date</th><th>Requested</th><th>Warehouse</th><th className="num">Net value</th><th className="num">Delivered</th><th className="num">Billed</th><th>Status</th></tr></thead>
+            <thead><tr><th>Sales order</th><th>Customer</th><th>Customer ref.</th><th>Order date</th><th>Requested</th><th>Sales area</th><th>Stor. loc.</th><th className="num">Net value</th><th className="num">Delivered</th><th className="num">Billed</th><th>Status</th></tr></thead>
             <tbody>
               {data.map((s) => (
                 <tr key={s.id}>
                   <td><Link className="link font-mono" to={`/sales/orders/${s.id}`}>{s.doc_no}</Link></td>
-                  <td>{s.customer_name}</td><td>{s.customer_ref}</td><td>{s.order_date}</td><td>{s.requested_date}</td><td>{s.warehouse_code}</td>
+                  <td>{s.customer_name}</td><td>{s.customer_ref}</td><td>{s.order_date}</td><td>{s.requested_date}</td><td className="font-mono text-xs">{s.sales_area}</td><td>{s.warehouse_code}</td>
                   <td className="num">{fmtMoney(s.total)}</td><td className="num">{s.delivered_pct}%</td><td className="num">{s.billed_pct}%</td>
                   <td><Status value={s.status} /></td>
                 </tr>
@@ -62,7 +62,18 @@ export function SOEdit() {
   const { data: materials } = useApi<any[]>('/materials');
   const { data: stock } = useApi<any[]>('/stock');
   const { data: existing } = useApi<any>(id ? `/sales-orders/${id}` : null);
-  const [head, setHead] = useState({ customerId: '', warehouseId: '', orderDate: todayIso(), requestedDate: '', customerRef: '', notes: '' });
+  const [head, setHead] = useState({ customerId: '', warehouseId: '', orderDate: todayIso(), requestedDate: '', customerRef: '', notes: '', salesAreaId: '' });
+  const { data: areas } = useApi<any[]>('/sales-areas');
+  useEffect(() => {
+    if (!head.salesAreaId && areas?.length && !id) {
+      const a = areas[0];
+      setHead((h) => ({ ...h, salesAreaId: String(a.id), warehouseId: a.default_warehouse_id ? String(a.default_warehouse_id) : h.warehouseId }));
+    }
+  }, [areas, head.salesAreaId, id]);
+  const chooseArea = (v: string) => {
+    const a = areas?.find((x) => String(x.id) === v);
+    setHead((h) => ({ ...h, salesAreaId: v, warehouseId: a?.default_warehouse_id ? String(a.default_warehouse_id) : h.warehouseId }));
+  };
   const [lines, setLines] = useState<Line[]>([{ materialId: '', qty: '', unitPrice: '' }]);
   const [error, setError] = useState<string | null>(null);
   const { data: credit } = useApi<any>(head.customerId ? `/customers/${head.customerId}/credit` : null);
@@ -76,6 +87,7 @@ export function SOEdit() {
       requestedDate: existing.requested_date ?? '',
       customerRef: existing.customer_ref ?? '',
       notes: existing.notes ?? '',
+      salesAreaId: existing.sales_area_id ? String(existing.sales_area_id) : '',
     });
     setLines(existing.lines.map((l: any) => ({ materialId: String(l.material_id), qty: String(l.qty), unitPrice: String(l.unit_price) })));
   }, [existing]);
@@ -100,6 +112,7 @@ export function SOEdit() {
         requestedDate: head.requestedDate || null,
         customerRef: head.customerRef || null,
         notes: head.notes || null,
+        salesAreaId: head.salesAreaId || null,
         lines: lines.filter((l) => l.materialId).map((l) => ({ materialId: Number(l.materialId), qty: Number(l.qty), unitPrice: Number(l.unitPrice) })),
       };
       if (id) {
@@ -127,9 +140,14 @@ export function SOEdit() {
               {customers?.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}
             </select>
           </Field>
-          <Field label="Ship from warehouse">
+          <Field label="Sales area (org / channel / division)">
+            <select className="input" required value={head.salesAreaId} onChange={(e) => chooseArea(e.target.value)}>
+              {areas?.map((a) => <option key={a.id} value={a.id}>{a.sales_org}/{a.distr_channel}/{a.division} {a.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Ship from storage location">
             <select className="input" required value={head.warehouseId} onChange={(e) => setHead({ ...head, warehouseId: e.target.value })}>
-              {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.code} {w.name}</option>)}
+              {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.plant_code}/{w.code} {w.name}</option>)}
             </select>
           </Field>
           <Field label="Customer reference (their PO no.)"><input className="input" value={head.customerRef} onChange={(e) => setHead({ ...head, customerRef: e.target.value })} /></Field>
@@ -235,6 +253,7 @@ export function SODetail() {
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 p-4 text-sm md:grid-cols-5">
           <div><dt className="label">Order date</dt><dd>{so.order_date}</dd></div>
           <div><dt className="label">Requested delivery</dt><dd>{so.requested_date ?? '—'}</dd></div>
+          <div><dt className="label">Sales area</dt><dd>{so.sales_area} {so.sales_area_name}</dd></div>
           <div><dt className="label">Ship from</dt><dd>{so.warehouse_code} {so.warehouse_name}</dd></div>
           <div><dt className="label">Created by</dt><dd>{so.created_by_name}</dd></div>
           <div><dt className="label">Net value</dt><dd className="font-semibold">{fmtMoney(so.total)}</dd></div>
@@ -335,11 +354,15 @@ function BillingModal({ so, onClose, onDone }: { so: any; onClose: () => void; o
   const [head, setHead] = useState({ invoiceDate: todayIso(), dueDate: '' });
   const [error, setError] = useState<string | null>(null);
   const total = open.reduce((s: number, l: any) => s + (Number(qty[l.id]) || 0) * l.unit_price, 0);
+  const { data: taxCodes } = useApi<any[]>('/tax-codes');
+  const [taxCodeId, setTaxCodeId] = useState(so.customer_tax_code_id ? String(so.customer_tax_code_id) : '');
+  const rate = taxCodes?.find((t) => String(t.id) === taxCodeId)?.rate_pct ?? 0;
+  const tax = Math.round(total * rate) / 100;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       const r = await api(`/sales-orders/${so.id}/billing`, {
-        body: { invoiceDate: head.invoiceDate, dueDate: head.dueDate || undefined, lines: open.map((l: any) => ({ soLineId: l.id, qty: Number(qty[l.id]) || 0 })) },
+        body: { invoiceDate: head.invoiceDate, dueDate: head.dueDate || undefined, taxCodeId: taxCodeId ? Number(taxCodeId) : 0, lines: open.map((l: any) => ({ soLineId: l.id, qty: Number(qty[l.id]) || 0 })) },
       });
       onDone(`Customer invoice ${r.docNo} posted (FI document ${r.journalDocNo})${r.idoc ? `. IDoc ${r.idoc} (INVOIC02) sent to the customer` : ''}`);
     } catch (err) {
@@ -350,9 +373,15 @@ function BillingModal({ so, onClose, onDone }: { so: any; onClose: () => void; o
     <Modal title={`Create customer invoice for ${so.doc_no}`} onClose={onClose} wide>
       <form onSubmit={submit}>
         <ErrorBanner error={error} />
-        <div className="mb-3 grid gap-3 sm:grid-cols-2">
+        <div className="mb-3 grid gap-3 sm:grid-cols-3">
           <Field label="Invoice date"><input className="input" type="date" value={head.invoiceDate} onChange={(e) => setHead({ ...head, invoiceDate: e.target.value })} /></Field>
           <Field label="Due date (default: payment terms)"><input className="input" type="date" value={head.dueDate} onChange={(e) => setHead({ ...head, dueDate: e.target.value })} /></Field>
+          <Field label="Output tax code (customer default)">
+            <select className="input" value={taxCodeId} onChange={(e) => setTaxCodeId(e.target.value)}>
+              <option value="">No tax</option>
+              {taxCodes?.filter((t) => t.direction === 'OUTPUT').map((t) => <option key={t.id} value={t.id}>{t.code} {t.description}</option>)}
+            </select>
+          </Field>
         </div>
         <table className="tbl">
           <thead><tr><th>Item</th><th>Material</th><th className="num">Delivered, not billed</th><th className="w-28 num">Bill qty</th><th className="num">Price</th><th className="num">Amount</th></tr></thead>
@@ -364,7 +393,11 @@ function BillingModal({ so, onClose, onDone }: { so: any; onClose: () => void; o
               <td className="num">{fmtMoney((Number(qty[l.id]) || 0) * l.unit_price)}</td>
             </tr>
           ))}</tbody>
-          <tfoot><tr className="font-semibold"><td colSpan={5} className="px-3 py-2 text-right">Invoice total</td><td className="num px-3">{fmtMoney(total)}</td></tr></tfoot>
+          <tfoot>
+            <tr><td colSpan={5} className="px-3 py-1 text-right text-slate-500">Net amount</td><td className="num px-3">{fmtMoney(total)}</td></tr>
+            <tr><td colSpan={5} className="px-3 py-1 text-right text-slate-500">Output tax {rate ? `${rate}%` : ''}</td><td className="num px-3">{fmtMoney(tax)}</td></tr>
+            <tr className="font-semibold"><td colSpan={5} className="px-3 py-2 text-right">Invoice total (gross)</td><td className="num px-3">{fmtMoney(total + tax)}</td></tr>
+          </tfoot>
         </table>
         <p className="mt-3 text-xs text-slate-500">Delivery-based billing at the order price: Dr Accounts receivable / Cr Sales revenue.</p>
         <div className="mt-4 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary">Post invoice</button></div>

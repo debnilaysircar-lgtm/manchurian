@@ -34,11 +34,12 @@ export function JournalList() {
         {loading && !data ? <Loading /> : !data?.length ? <Empty /> : (
           <div className="overflow-x-auto">
             <table className="tbl">
-              <thead><tr><th>Document</th><th>Posting date</th><th>Source</th><th>Reference</th><th>Description</th><th className="num">Amount</th><th>Status</th><th>Posted by</th></tr></thead>
+              <thead><tr><th>Document</th><th>Type</th><th>Posting date</th><th>Source</th><th>Reference</th><th>Description</th><th className="num">Amount</th><th>Status</th><th>Posted by</th></tr></thead>
               <tbody>
                 {data.map((j) => (
                   <tr key={j.id}>
                     <td><Link className="link font-mono" to={`/finance/journals/${j.id}`}>{j.doc_no}</Link></td>
+                    <td className="font-mono">{j.doc_type}</td>
                     <td>{j.posting_date}</td>
                     <td>{j.source}</td>
                     <td>{j.reference}</td>
@@ -57,14 +58,17 @@ export function JournalList() {
   );
 }
 
-type Line = { accountId: string; debit: string; credit: string; memo: string; vendorId: string };
-const emptyLine = (): Line => ({ accountId: '', debit: '', credit: '', memo: '', vendorId: '' });
+type Line = { accountId: string; debit: string; credit: string; memo: string; vendorId: string; costCenterId: string };
+const emptyLine = (): Line => ({ accountId: '', debit: '', credit: '', memo: '', vendorId: '', costCenterId: '' });
 
 export function JournalNew() {
   const nav = useNavigate();
   const { data: accounts } = useApi<any[]>('/accounts');
   const { data: vendors } = useApi<any[]>('/vendors');
-  const [head, setHead] = useState({ postingDate: todayIso(), reference: '', description: '' });
+  const [head, setHead] = useState({ postingDate: todayIso(), reference: '', description: '', docType: 'SA' });
+  const { data: docTypes } = useApi<any[]>('/document-types');
+  const { data: costCenters } = useApi<any[]>('/cost-centers');
+  const pl = (accountId: string) => ['EXPENSE', 'REVENUE'].includes(accounts?.find((a) => String(a.id) === accountId)?.type);
   const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,7 +87,7 @@ export function JournalNew() {
         ...head,
         lines: lines
           .filter((l) => l.accountId && (Number(l.debit) || Number(l.credit)))
-          .map((l) => ({ accountId: Number(l.accountId), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, memo: l.memo || null, vendorId: l.vendorId ? Number(l.vendorId) : null })),
+          .map((l) => ({ accountId: Number(l.accountId), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, memo: l.memo || null, vendorId: l.vendorId ? Number(l.vendorId) : null, costCenterId: l.costCenterId && pl(l.accountId) ? Number(l.costCenterId) : null })),
       };
       const r = await api<{ id: number }>('/journals', { body });
       nav(`/finance/journals/${r.id}`);
@@ -99,16 +103,21 @@ export function JournalNew() {
       <PageHeader title="New Journal Entry" subtitle="Manual G/L posting — debits must equal credits" />
       <ErrorBanner error={error} onClose={() => setError(null)} />
       <Card className="mb-4">
-        <div className="grid gap-3 p-4 md:grid-cols-3">
+        <div className="grid gap-3 p-4 md:grid-cols-4">
           <Field label="Posting date"><input className="input" type="date" required value={head.postingDate} onChange={(e) => setHead({ ...head, postingDate: e.target.value })} /></Field>
           <Field label="Reference"><input className="input" value={head.reference} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
           <Field label="Header text"><input className="input" value={head.description} onChange={(e) => setHead({ ...head, description: e.target.value })} /></Field>
+          <Field label="Document type">
+            <select className="input" value={head.docType} onChange={(e) => setHead({ ...head, docType: e.target.value })}>
+              {docTypes?.filter((d) => d.manual_allowed).map((d) => <option key={d.code} value={d.code}>{d.code} {d.description}</option>)}
+            </select>
+          </Field>
         </div>
       </Card>
       <Card title="Line items">
         <div className="overflow-x-auto">
           <table className="tbl">
-            <thead><tr><th className="w-72">G/L account</th><th className="w-32 num">Debit</th><th className="w-32 num">Credit</th><th>Text</th><th className="w-48">Vendor (optional)</th><th /></tr></thead>
+            <thead><tr><th className="w-72">G/L account</th><th className="w-32 num">Debit</th><th className="w-32 num">Credit</th><th>Text</th><th className="w-44">Cost center</th><th className="w-48">Vendor (optional)</th><th /></tr></thead>
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i}>
@@ -121,6 +130,12 @@ export function JournalNew() {
                   <td><input className="input text-right" type="number" step="0.01" min="0" value={l.debit} onChange={(e) => setLine(i, { debit: e.target.value, credit: e.target.value ? '' : l.credit })} /></td>
                   <td><input className="input text-right" type="number" step="0.01" min="0" value={l.credit} onChange={(e) => setLine(i, { credit: e.target.value, debit: e.target.value ? '' : l.debit })} /></td>
                   <td><input className="input" value={l.memo} onChange={(e) => setLine(i, { memo: e.target.value })} /></td>
+                  <td>
+                    <select className="input" value={l.costCenterId} disabled={!pl(l.accountId)} title={pl(l.accountId) ? '' : 'Only expense and revenue lines take a cost center'} onChange={(e) => setLine(i, { costCenterId: e.target.value })}>
+                      <option value="" />
+                      {costCenters?.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}
+                    </select>
+                  </td>
                   <td>
                     <select className="input" value={l.vendorId} onChange={(e) => setLine(i, { vendorId: e.target.value })}>
                       <option value="" />
@@ -186,6 +201,7 @@ export function JournalDetail() {
       <Card className="mb-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 p-4 text-sm md:grid-cols-4">
           <div><dt className="label">Posting date</dt><dd>{j.posting_date}</dd></div>
+          <div><dt className="label">Document type</dt><dd className="font-mono">{j.doc_type}</dd></div>
           <div><dt className="label">Source</dt><dd>{j.source} {j.source_doc && <span className="font-mono text-slate-500">({j.source_doc})</span>}</dd></div>
           <div><dt className="label">Reference</dt><dd>{j.reference || '—'}</dd></div>
           <div><dt className="label">Posted by</dt><dd>{j.created_by_name} · {j.created_at}</dd></div>
@@ -196,7 +212,7 @@ export function JournalDetail() {
       <Card title="Line items">
         <div className="overflow-x-auto">
           <table className="tbl">
-            <thead><tr><th>#</th><th>Account</th><th>Text</th><th>Business partner</th><th>Material</th><th className="num">Debit</th><th className="num">Credit</th></tr></thead>
+            <thead><tr><th>#</th><th>Account</th><th>Text</th><th>Business partner</th><th>Cost center</th><th>Material</th><th className="num">Debit</th><th className="num">Credit</th></tr></thead>
             <tbody>
               {j.lines.map((l: any) => (
                 <tr key={l.line_no}>
@@ -204,13 +220,14 @@ export function JournalDetail() {
                   <td><Link className="link" to={`/finance/ledger?account=${l.account_id}`}><span className="font-mono">{l.account_code}</span> {l.account_name}</Link></td>
                   <td>{l.memo}</td>
                   <td>{l.vendor_name ?? l.customer_name}</td>
+                  <td className="font-mono">{l.cost_center_code}</td>
                   <td className="font-mono">{l.material_code}</td>
                   <td className="num">{l.debit ? fmtMoney(l.debit) : ''}</td>
                   <td className="num">{l.credit ? fmtMoney(l.credit) : ''}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="font-semibold"><td colSpan={5} className="px-3 py-2">Total</td><td className="num px-3">{fmtMoney(dr)}</td><td className="num px-3">{fmtMoney(cr)}</td></tr></tfoot>
+            <tfoot><tr className="font-semibold"><td colSpan={6} className="px-3 py-2">Total</td><td className="num px-3">{fmtMoney(dr)}</td><td className="num px-3">{fmtMoney(cr)}</td></tr></tfoot>
           </table>
         </div>
       </Card>

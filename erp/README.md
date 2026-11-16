@@ -100,6 +100,26 @@ Check **Trial Balance** and **Financial Statements** after either flow. The ledg
 
 ## Configuration
 
+**Configuration → Implementation Guide** lists every configuration activity in one tree, like SAP's IMG. Customizing tables are maintained on one generic screen. Each entry shows what it affects, who may change it, and it refuses to delete anything still in use.
+
+| Area | Element | Effect in the system |
+|---|---|---|
+| Enterprise structure | Plants | Storage locations belong to a plant; stock can be viewed per plant |
+| | Storage locations | Hold stock; used by goods movements, purchase and sales orders |
+| | Purchasing groups | Assigned on purchase orders; an own release limit overrides the global one |
+| | Sales areas (sales org / channel / division) | Every sales order has one; its default storage location is proposed |
+| Financial accounting | FI document types (SA, AB, WE, WA, WI, WL, RE, KZ, RV, DZ) | Assigned to every journal entry; manual entries only with types allowed for manual posting |
+| | Tax codes (V0, V1, A0, A1 by default) | Input tax on vendor invoices, output tax on customer invoices, each to its own G/L account |
+| | Payment terms | Assigned to vendors and customers; drive invoice due dates |
+| Controlling | Cost centers | On goods issues and expense/revenue journal lines; cost center report |
+| Logistics general | Units of measure | A material's base unit must exist |
+| | Material types | Whether each type can be purchased and/or sold |
+| | Material groups | Assigned to materials; stock overview filter |
+
+Valuation is at company code level (one moving average price per material across plants). There is one company code, kept under General settings.
+
+The settings below are under the area pages in the same guide.
+
 Under **Configuration** in the menu. Each area can be changed by admins and by its own role (finance, purchasing, sales, warehouse). General, numbering and IDoc settings are admin-only.
 
 | Setting | Effect |

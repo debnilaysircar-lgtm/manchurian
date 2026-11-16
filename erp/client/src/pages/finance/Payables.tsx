@@ -68,7 +68,9 @@ export function InvoiceDetail() {
           <div><dt className="label">Due date</dt><dd>{inv.due_date}</dd></div>
           <div><dt className="label">Purchase order</dt><dd>{inv.po_id ? <Link className="link font-mono" to={`/purchasing/orders/${inv.po_id}`}>{inv.po_doc_no}</Link> : '—'}</dd></div>
           <div><dt className="label">FI document</dt><dd><Link className="link font-mono" to={`/finance/journals/${inv.journal_entry_id}`}>{inv.journal_doc_no}</Link></dd></div>
-          <div><dt className="label">Total</dt><dd className="font-semibold">{fmtMoney(inv.total)}</dd></div>
+          <div><dt className="label">Net amount</dt><dd>{fmtMoney(inv.net_amount)}</dd></div>
+          <div><dt className="label">Input tax</dt><dd>{inv.tax_code ? `${fmtMoney(inv.tax_amount)} (${inv.tax_code})` : 'None'}</dd></div>
+          <div><dt className="label">Total (gross)</dt><dd className="font-semibold">{fmtMoney(inv.total)}</dd></div>
           <div><dt className="label">Paid</dt><dd>{fmtMoney(inv.paid_amount)}</dd></div>
           <div><dt className="label">Open</dt><dd className="font-semibold">{fmtMoney(inv.open_amount)}</dd></div>
         </dl>

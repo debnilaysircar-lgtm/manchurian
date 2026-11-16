@@ -14,6 +14,10 @@ import * as idoc from '../services/idoc.ts';
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const optDate = date.optional().or(z.literal('').transform(() => undefined));
 const intId = z.coerce.number().int().positive();
+/** Optional id from a form select: '' or null means "not set". */
+const optId = z.preprocess((v) => (v === '' || v === null ? undefined : v), intId.optional());
+/** Tax code choice: omitted = default, 0 = no tax, otherwise the tax code id. */
+const taxChoice = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.coerce.number().int().min(0).optional()).transform((v) => (v === 0 ? null : v));
 const num = (v: unknown) => (v === undefined || v === '' ? undefined : Number(v));
 const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
 const pid = (v: string) => {
@@ -41,10 +45,15 @@ export function transactionRoutes(db: DB) {
           credit: z.coerce.number().min(0).default(0),
           memo: z.string().max(200).nullish(),
           vendorId: intId.nullish(),
+          costCenterId: optId,
         })).min(2),
+        docType: z.string().trim().toUpperCase().default('SA'),
       }),
       req.body,
     );
+    const dt = db.prepare('SELECT manual_allowed FROM fi_document_types WHERE code = ?').get(d.docType) as { manual_allowed: number } | undefined;
+    if (!dt) throw badRequest(`Document type ${d.docType} is not defined`);
+    if (!dt.manual_allowed) throw badRequest(`Document type ${d.docType} is reserved for system postings`);
     return fi.postJournal(db, { ...d, source: 'MANUAL', lines: d.lines.map((l) => ({ ...l, debit: toCents(l.debit), credit: toCents(l.credit) })) }, uid(req));
   }));
   r.post('/journals/:id/reverse', requireRole('finance'), handle((req) => {
@@ -58,11 +67,19 @@ export function transactionRoutes(db: DB) {
     const from = str(req.query.from) ?? `${to.slice(0, 4)}-01-01`;
     return fi.financialStatements(db, from, to);
   }));
+  r.get('/reports/cost-centers', handle((req) => {
+    const to = str(req.query.to) ?? today();
+    return fi.costCenterReport(db, str(req.query.from) ?? `${to.slice(0, 4)}-01-01`, to);
+  }));
+  r.get('/document-types', handle(() => db.prepare('SELECT code, description, manual_allowed FROM fi_document_types ORDER BY code').all()));
+  r.get('/cost-centers', handle(() => db.prepare('SELECT id, code, name, is_active FROM cost_centers ORDER BY code').all()));
+  r.get('/tax-codes', handle(() => db.prepare('SELECT id, code, description, direction, rate_pct FROM tax_codes ORDER BY code').all()));
   r.get('/reports/ap-aging', handle((req) => mm.apAging(db, str(req.query.asOf))));
 
   // ---------- Inventory ----------
   r.get('/movement-types', handle(() => Object.entries(inv.MOVEMENT_TYPES).map(([code, name]) => ({ code, name }))));
-  r.get('/stock', handle((req) => inv.stockOverview(db, num(req.query.warehouseId))));
+  r.get('/stock', handle((req) =>
+    inv.stockOverview(db, { warehouseId: num(req.query.warehouseId), plantId: num(req.query.plantId), materialGroupId: num(req.query.materialGroupId) })));
   r.get('/movements', handle((req) =>
     inv.listMovements(db, {
       materialId: num(req.query.materialId),
@@ -80,6 +97,7 @@ export function transactionRoutes(db: DB) {
         postingDate: optDate,
         note: z.string().max(200).optional(),
         offsetAccountId: intId.optional(),
+        costCenterId: optId,
         items: z.array(z.object({ materialId: intId, qty: z.coerce.number().positive(), amount: z.coerce.number().min(0).optional() })).min(1),
       }),
       req.body,
@@ -94,6 +112,7 @@ export function transactionRoutes(db: DB) {
     orderDate: optDate,
     deliveryDate: optDate.nullish(),
     notes: z.string().max(500).nullish(),
+    purchasingGroupId: optId,
     lines: z.array(z.object({ materialId: intId, qty: z.coerce.number().positive(), unitPrice: z.coerce.number().min(0) })).min(1),
   });
   const toPO = (d: z.infer<typeof poSchema>) => ({ ...d, lines: d.lines.map((l) => ({ ...l, unitPrice: toCents(l.unitPrice) })) });
@@ -120,6 +139,7 @@ export function transactionRoutes(db: DB) {
         vendorRef: z.string().trim().min(1).max(40),
         invoiceDate: optDate,
         dueDate: optDate,
+        taxCodeId: taxChoice,
         lines: z.array(z.object({ poLineId: intId, qty: z.coerce.number().min(0), unitPrice: z.coerce.number().min(0) })).min(1),
       }),
       req.body,
@@ -146,6 +166,7 @@ export function transactionRoutes(db: DB) {
     requestedDate: optDate.nullish(),
     customerRef: z.string().max(40).nullish(),
     notes: z.string().max(500).nullish(),
+    salesAreaId: optId,
     lines: z.array(z.object({ materialId: intId, qty: z.coerce.number().positive(), unitPrice: z.coerce.number().min(0).optional() })).min(1),
   });
   const toSO = (d: z.infer<typeof soSchema>) => ({ ...d, lines: d.lines.map((l) => ({ ...l, unitPrice: l.unitPrice === undefined ? undefined : toCents(l.unitPrice) })) });
@@ -167,7 +188,7 @@ export function transactionRoutes(db: DB) {
   }));
   r.post('/sales-orders/:id/billing', requireRole('sales', 'finance'), handle((req) => {
     const d = parse(
-      z.object({ invoiceDate: optDate, dueDate: optDate, lines: z.array(z.object({ soLineId: intId, qty: z.coerce.number().min(0) })).optional() }),
+      z.object({ invoiceDate: optDate, dueDate: optDate, taxCodeId: taxChoice, lines: z.array(z.object({ soLineId: intId, qty: z.coerce.number().min(0) })).optional() }),
       req.body ?? {},
     );
     const r = sd.postBilling(db, pid(req.params.id), d, uid(req));

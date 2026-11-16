@@ -140,6 +140,8 @@ export interface MovementInput {
   note?: string;
   /** Optional GL account override for the offset (e.g. a specific expense account for 201). */
   offsetAccountId?: number;
+  /** Cost center for goods issues (201). */
+  costCenterId?: number;
   items: MovementItem[];
 }
 
@@ -150,6 +152,9 @@ export function postGoodsMovement(db: DB, input: MovementInput, userId: number |
   if (!getConfig<string[]>(db, 'movement_types_enabled').includes(type)) throw badRequest(`Movement type ${type} is not enabled in configuration`);
   if (getConfig<boolean>(db, 'movement_note_required') && ['201', '701', '702'].includes(type) && !input.note?.trim())
     throw badRequest(`A note is required for movement type ${type}`);
+  if (type === '201' && !input.costCenterId && getConfig<boolean>(db, 'cost_center_required_gi'))
+    throw badRequest('A cost center is required for goods issues (see Configuration > Inventory)');
+  if (type !== '201' && input.costCenterId) throw badRequest('A cost center can only be given for goods issues (201)');
   if (!items.length) throw badRequest('At least one item is required');
   assertWarehouse(db, warehouseId);
   if (type === '301') {
@@ -178,7 +183,13 @@ export function postGoodsMovement(db: DB, input: MovementInput, userId: number |
         case '201':
         case '702': {
           amount = issueFromStock(db, mat.id, warehouseId, qty);
-          jlines.push({ accountId: offsetAcc!, debit: amount, memo: `${MOVEMENT_TYPES[type]} ${mat.code}`, materialId: mat.id });
+          jlines.push({
+            accountId: offsetAcc!,
+            debit: amount,
+            memo: `${MOVEMENT_TYPES[type]} ${mat.code}`,
+            materialId: mat.id,
+            costCenterId: type === '201' ? input.costCenterId ?? null : null,
+          });
           jlines.push({ accountId: inventoryAcc, credit: amount, memo: `${mat.code} x ${qty}`, materialId: mat.id });
           break;
         }
@@ -231,40 +242,47 @@ export function postGoodsMovement(db: DB, input: MovementInput, userId: number |
   })();
 }
 
-export function stockOverview(db: DB, warehouseId?: number) {
+/** Stock per material, optionally limited to a storage location, a plant or a material group. Valuation is at company level. */
+export function stockOverview(db: DB, f: { warehouseId?: number; plantId?: number; materialGroupId?: number } = {}) {
+  const scoped = !!(f.warehouseId || f.plantId);
   const materials = db
     .prepare(
-      `SELECT m.id, m.code, m.name, m.uom, m.material_type, m.reorder_level, m.stock_value,
+      `SELECT m.id, m.code, m.name, m.uom, m.material_type, m.reorder_level, m.stock_value, mg.code AS material_group,
               COALESCE((SELECT SUM(qty) FROM stock s WHERE s.material_id = m.id), 0) AS total_qty
-       FROM materials m ORDER BY m.code`,
+       FROM materials m LEFT JOIN material_groups mg ON mg.id = m.material_group_id
+       WHERE (@mg IS NULL OR m.material_group_id = @mg) ORDER BY m.code`,
     )
-    .all() as any[];
+    .all({ mg: f.materialGroupId ?? null }) as any[];
   const perWh = db
     .prepare(
-      `SELECT s.material_id, s.warehouse_id, w.code AS warehouse_code, s.qty FROM stock s
-       JOIN warehouses w ON w.id = s.warehouse_id WHERE s.qty <> 0 AND (@wh IS NULL OR s.warehouse_id = @wh)`,
+      `SELECT s.material_id, s.warehouse_id, w.code AS warehouse_code, p.code AS plant_code, s.qty FROM stock s
+       JOIN warehouses w ON w.id = s.warehouse_id LEFT JOIN plants p ON p.id = w.plant_id
+       WHERE s.qty <> 0 AND (@wh IS NULL OR s.warehouse_id = @wh) AND (@plant IS NULL OR w.plant_id = @plant)`,
     )
-    .all({ wh: warehouseId ?? null }) as any[];
+    .all({ wh: f.warehouseId ?? null, plant: f.plantId ?? null }) as any[];
   return materials
     .map((m) => {
       const map = m.total_qty > 0 ? m.stock_value / m.total_qty : 0;
-      const breakdown = perWh.filter((p) => p.material_id === m.id).map((p) => ({ warehouseId: p.warehouse_id, warehouseCode: p.warehouse_code, qty: p.qty }));
-      const qty = warehouseId ? breakdown.reduce((s, b) => s + b.qty, 0) : m.total_qty;
+      const breakdown = perWh
+        .filter((p) => p.material_id === m.id)
+        .map((p) => ({ warehouseId: p.warehouse_id, warehouseCode: p.warehouse_code, plantCode: p.plant_code, qty: p.qty }));
+      const qty = scoped ? breakdown.reduce((s, b) => s + b.qty, 0) : m.total_qty;
       return {
         id: m.id,
         code: m.code,
         name: m.name,
         uom: m.uom,
         materialType: m.material_type,
+        materialGroup: m.material_group,
         reorderLevel: m.reorder_level,
         qty: roundQty(qty),
         movingAveragePrice: fromCents(map),
-        value: warehouseId ? fromCents(Math.round(map * qty)) : fromCents(m.stock_value),
+        value: scoped ? fromCents(Math.round(map * qty)) : fromCents(m.stock_value),
         belowReorder: m.reorder_level > 0 && m.total_qty < m.reorder_level,
         warehouses: breakdown,
       };
     })
-    .filter((r) => !warehouseId || r.qty !== 0);
+    .filter((r) => !scoped || r.qty !== 0);
 }
 
 export function listMovements(db: DB, q: { materialId?: number; warehouseId?: number; type?: string; from?: string; to?: string }) {

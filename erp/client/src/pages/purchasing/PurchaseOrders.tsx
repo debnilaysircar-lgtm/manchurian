@@ -31,12 +31,12 @@ export function POList() {
         {loading && !data ? <Loading /> : !data?.length ? <Empty /> : (
           <div className="overflow-x-auto">
             <table className="tbl">
-              <thead><tr><th>PO</th><th>Vendor</th><th>Order date</th><th>Delivery</th><th>Warehouse</th><th className="num">Net value</th><th className="num">Received</th><th className="num">Invoiced</th><th>Status</th></tr></thead>
+              <thead><tr><th>PO</th><th>Vendor</th><th>Order date</th><th>Delivery</th><th>Pur. group</th><th>Stor. loc.</th><th className="num">Net value</th><th className="num">Received</th><th className="num">Invoiced</th><th>Status</th></tr></thead>
               <tbody>
                 {data.map((p) => (
                   <tr key={p.id}>
                     <td><Link className="link font-mono" to={`/purchasing/orders/${p.id}`}>{p.doc_no}</Link></td>
-                    <td>{p.vendor_name}</td><td>{p.order_date}</td><td>{p.delivery_date}</td><td>{p.warehouse_code}</td>
+                    <td>{p.vendor_name}</td><td>{p.order_date}</td><td>{p.delivery_date}</td><td className="font-mono">{p.purchasing_group_code ?? ''}</td><td>{p.warehouse_code}</td>
                     <td className="num">{fmtMoney(p.total)}</td><td className="num">{p.received_pct}%</td><td className="num">{p.invoiced_pct}%</td>
                     <td><Status value={p.status} /></td>
                   </tr>
@@ -60,13 +60,14 @@ export function POEdit() {
   const { data: warehouses } = useApi<any[]>('/warehouses');
   const { data: materials } = useApi<any[]>('/materials');
   const { data: existing } = useApi<any>(id ? `/purchase-orders/${id}` : null);
-  const [head, setHead] = useState({ vendorId: '', warehouseId: '', orderDate: todayIso(), deliveryDate: '', notes: '' });
+  const [head, setHead] = useState({ vendorId: '', warehouseId: '', orderDate: todayIso(), deliveryDate: '', notes: '', purchasingGroupId: '' });
+  const { data: groups } = useApi<any[]>('/purchasing-groups');
   const [lines, setLines] = useState<Line[]>([{ materialId: params.get('material') ?? '', qty: '', unitPrice: '' }]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!existing) return;
-    setHead({ vendorId: String(existing.vendor_id), warehouseId: String(existing.warehouse_id), orderDate: existing.order_date, deliveryDate: existing.delivery_date ?? '', notes: existing.notes ?? '' });
+    setHead({ vendorId: String(existing.vendor_id), warehouseId: String(existing.warehouse_id), orderDate: existing.order_date, deliveryDate: existing.delivery_date ?? '', notes: existing.notes ?? '', purchasingGroupId: existing.purchasing_group_id ? String(existing.purchasing_group_id) : '' });
     setLines(existing.lines.map((l: any) => ({ materialId: String(l.material_id), qty: String(l.qty), unitPrice: String(l.unit_price) })));
   }, [existing]);
   useEffect(() => {
@@ -86,6 +87,7 @@ export function POEdit() {
         orderDate: head.orderDate,
         deliveryDate: head.deliveryDate || null,
         notes: head.notes || null,
+        purchasingGroupId: head.purchasingGroupId || null,
         lines: lines.filter((l) => l.materialId).map((l) => ({ materialId: Number(l.materialId), qty: Number(l.qty), unitPrice: Number(l.unitPrice) })),
       };
       if (id) {
@@ -113,14 +115,20 @@ export function POEdit() {
               {vendors?.filter((v) => v.is_active).map((v) => <option key={v.id} value={v.id}>{v.code} {v.name}</option>)}
             </select>
           </Field>
-          <Field label="Deliver to warehouse">
+          <Field label="Deliver to storage location">
             <select className="input" required value={head.warehouseId} onChange={(e) => setHead({ ...head, warehouseId: e.target.value })}>
-              {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.code} {w.name}</option>)}
+              {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.plant_code}/{w.code} {w.name}</option>)}
             </select>
           </Field>
           <Field label="Order date"><input className="input" type="date" value={head.orderDate} onChange={(e) => setHead({ ...head, orderDate: e.target.value })} /></Field>
           <Field label="Delivery date"><input className="input" type="date" value={head.deliveryDate} onChange={(e) => setHead({ ...head, deliveryDate: e.target.value })} /></Field>
-          <Field label="Notes" className="md:col-span-4"><input className="input" value={head.notes} onChange={(e) => setHead({ ...head, notes: e.target.value })} /></Field>
+          <Field label="Purchasing group">
+            <select className="input" value={head.purchasingGroupId} onChange={(e) => setHead({ ...head, purchasingGroupId: e.target.value })}>
+              <option value="">None</option>
+              {groups?.map((g) => <option key={g.id} value={g.id}>{g.code} {g.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Notes" className="md:col-span-3"><input className="input" value={head.notes} onChange={(e) => setHead({ ...head, notes: e.target.value })} /></Field>
         </div>
       </Card>
       <Card title="Items">
@@ -203,7 +211,8 @@ export function PODetail() {
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 p-4 text-sm md:grid-cols-5">
           <div><dt className="label">Order date</dt><dd>{po.order_date}</dd></div>
           <div><dt className="label">Delivery date</dt><dd>{po.delivery_date ?? '—'}</dd></div>
-          <div><dt className="label">Warehouse</dt><dd>{po.warehouse_code} {po.warehouse_name}</dd></div>
+          <div><dt className="label">Plant / storage location</dt><dd>{po.plant_code}/{po.warehouse_code} {po.warehouse_name}</dd></div>
+          <div><dt className="label">Purchasing group</dt><dd>{po.purchasing_group_code ? `${po.purchasing_group_code} ${po.purchasing_group_name}` : '—'}</dd></div>
           <div><dt className="label">Created by</dt><dd>{po.created_by_name}</dd></div>
           <div><dt className="label">Net value</dt><dd className="font-semibold">{fmtMoney(po.total)}</dd></div>
           {po.notes && <div className="col-span-full"><dt className="label">Notes</dt><dd>{po.notes}</dd></div>}
@@ -292,11 +301,15 @@ function InvoiceModal({ po, onClose, onDone }: { po: any; onClose: () => void; o
   const [head, setHead] = useState({ vendorRef: '', invoiceDate: todayIso(), dueDate: '' });
   const [error, setError] = useState<string | null>(null);
   const total = open.reduce((s: number, l: any) => s + (Number(vals[l.id].qty) || 0) * (Number(vals[l.id].price) || 0), 0);
+  const { data: taxCodes } = useApi<any[]>('/tax-codes');
+  const [taxCodeId, setTaxCodeId] = useState('');
+  const rate = taxCodes?.find((t) => String(t.id) === taxCodeId)?.rate_pct ?? 0;
+  const tax = Math.round(total * rate) / 100;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       const r = await api(`/purchase-orders/${po.id}/invoice`, {
-        body: { ...head, dueDate: head.dueDate || undefined, lines: open.map((l: any) => ({ poLineId: l.id, qty: Number(vals[l.id].qty) || 0, unitPrice: Number(vals[l.id].price) || 0 })) },
+        body: { ...head, dueDate: head.dueDate || undefined, taxCodeId: taxCodeId ? Number(taxCodeId) : 0, lines: open.map((l: any) => ({ poLineId: l.id, qty: Number(vals[l.id].qty) || 0, unitPrice: Number(vals[l.id].price) || 0 })) },
       });
       onDone(`Invoice ${r.docNo} posted (FI document ${r.journalDocNo})`);
     } catch (err) {
@@ -307,10 +320,16 @@ function InvoiceModal({ po, onClose, onDone }: { po: any; onClose: () => void; o
     <Modal title={`Enter vendor invoice for ${po.doc_no}`} onClose={onClose} wide>
       <form onSubmit={submit}>
         <ErrorBanner error={error} />
-        <div className="mb-3 grid gap-3 sm:grid-cols-3">
+        <div className="mb-3 grid gap-3 sm:grid-cols-4">
           <Field label="Vendor invoice number"><input className="input" required value={head.vendorRef} onChange={(e) => setHead({ ...head, vendorRef: e.target.value })} /></Field>
           <Field label="Invoice date"><input className="input" type="date" value={head.invoiceDate} onChange={(e) => setHead({ ...head, invoiceDate: e.target.value })} /></Field>
           <Field label="Due date (default: payment terms)"><input className="input" type="date" value={head.dueDate} onChange={(e) => setHead({ ...head, dueDate: e.target.value })} /></Field>
+          <Field label="Input tax code">
+            <select className="input" value={taxCodeId} onChange={(e) => setTaxCodeId(e.target.value)}>
+              <option value="">No tax</option>
+              {taxCodes?.filter((t) => t.direction === 'INPUT').map((t) => <option key={t.id} value={t.id}>{t.code} {t.description}</option>)}
+            </select>
+          </Field>
         </div>
         <table className="tbl">
           <thead><tr><th>Item</th><th>Material</th><th className="num">Received, not invoiced</th><th className="w-28 num">Qty</th><th className="w-32 num">Unit price</th><th className="num">Amount</th></tr></thead>
@@ -326,7 +345,11 @@ function InvoiceModal({ po, onClose, onDone }: { po: any; onClose: () => void; o
               </tr>
             );
           })}</tbody>
-          <tfoot><tr className="font-semibold"><td colSpan={5} className="px-3 py-2 text-right">Invoice total</td><td className="num px-3">{fmtMoney(total)}</td></tr></tfoot>
+          <tfoot>
+            <tr><td colSpan={5} className="px-3 py-1 text-right text-slate-500">Net amount</td><td className="num px-3">{fmtMoney(total)}</td></tr>
+            <tr><td colSpan={5} className="px-3 py-1 text-right text-slate-500">Input tax {rate ? `${rate}%` : ''}</td><td className="num px-3">{fmtMoney(tax)}</td></tr>
+            <tr className="font-semibold"><td colSpan={5} className="px-3 py-2 text-right">Invoice total (gross)</td><td className="num px-3">{fmtMoney(total + tax)}</td></tr>
+          </tfoot>
         </table>
         <p className="mt-3 text-xs text-slate-500">Three-way match: quantity is limited to what was received. Price deviations from the PO post to the price-difference account.</p>
         <div className="mt-4 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary">Post invoice</button></div>

@@ -6,8 +6,12 @@ import { Card, Empty, ErrorBanner, Field, Loading, PageHeader } from '../../comp
 
 export function StockOverview() {
   const [warehouseId, setWarehouseId] = useState('');
+  const [plantId, setPlantId] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const { data: plants } = useApi<any[]>('/plants');
+  const { data: groups } = useApi<any[]>('/material-groups');
   const { data: warehouses } = useApi<any[]>('/warehouses');
-  const { data, error } = useApi<any[]>(`/stock${qs({ warehouseId })}`);
+  const { data, error } = useApi<any[]>(`/stock${qs({ warehouseId, plantId, materialGroupId: groupId })}`);
   const total = data?.reduce((s, m) => s + m.value, 0) ?? 0;
   return (
     <div>
@@ -16,10 +20,20 @@ export function StockOverview() {
       <Card
         title={`Total stock value ${fmtMoney(total)}`}
         actions={
-          <select className="input w-56" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
-            <option value="">All warehouses</option>
-            {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.code} {w.name}</option>)}
-          </select>
+          <div className="flex flex-wrap gap-2">
+            <select className="input w-40" value={plantId} onChange={(e) => { setPlantId(e.target.value); setWarehouseId(''); }}>
+              <option value="">All plants</option>
+              {plants?.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}
+            </select>
+            <select className="input w-48" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+              <option value="">All storage locations</option>
+              {warehouses?.filter((w) => !plantId || String(w.plant_id) === plantId).map((w) => <option key={w.id} value={w.id}>{w.plant_code}/{w.code} {w.name}</option>)}
+            </select>
+            <select className="input w-44" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+              <option value="">All material groups</option>
+              {groups?.map((g) => <option key={g.id} value={g.id}>{g.code} {g.description}</option>)}
+            </select>
+          </div>
         }
       >
         {!data ? <Loading /> : !data.length ? <Empty /> : (
@@ -116,7 +130,8 @@ export function MovementNew() {
   const { data: warehouses } = useApi<any[]>('/warehouses');
   const { data: accounts } = useApi<any[]>('/accounts');
   const { data: stock } = useApi<any[]>('/stock');
-  const [head, setHead] = useState({ movementType: '201', warehouseId: '', toWarehouseId: '', postingDate: todayIso(), note: '', offsetAccountId: '' });
+  const [head, setHead] = useState({ movementType: '201', warehouseId: '', toWarehouseId: '', postingDate: todayIso(), note: '', offsetAccountId: '', costCenterId: '' });
+  const { data: costCenters } = useApi<any[]>('/cost-centers');
   const [items, setItems] = useState([{ materialId: '', qty: '', amount: '' }]);
   const [error, setError] = useState<string | null>(null);
   const t = head.movementType;
@@ -136,6 +151,7 @@ export function MovementNew() {
           postingDate: head.postingDate,
           note: head.note || undefined,
           offsetAccountId: t === '201' && head.offsetAccountId ? Number(head.offsetAccountId) : undefined,
+          costCenterId: t === '201' && head.costCenterId ? Number(head.costCenterId) : undefined,
           items: items.filter((i) => i.materialId).map((i) => ({ materialId: Number(i.materialId), qty: Number(i.qty), amount: t === '561' ? Number(i.amount) : undefined })),
         },
       });
@@ -179,6 +195,14 @@ export function MovementNew() {
               <select className="input" value={head.offsetAccountId} onChange={(e) => setHead({ ...head, offsetAccountId: e.target.value })}>
                 <option value="">Default: material consumption</option>
                 {accounts?.filter((a) => a.type === 'EXPENSE').map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
+              </select>
+            </Field>
+          )}
+          {t === '201' && (
+            <Field label="Cost center">
+              <select id="mv-cost-center" className="input" value={head.costCenterId} onChange={(e) => setHead({ ...head, costCenterId: e.target.value })}>
+                <option value="">None</option>
+                {costCenters?.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}
               </select>
             </Field>
           )}

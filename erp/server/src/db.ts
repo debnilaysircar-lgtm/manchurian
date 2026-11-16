@@ -336,6 +336,112 @@ CREATE TABLE IF NOT EXISTS receipts (
 );
 `;
 
+/** Customizing tables (enterprise structure and IMG objects). Columns added to older tables are in addColumns(). */
+const CUSTOMIZING_SCHEMA = `
+CREATE TABLE IF NOT EXISTS plants (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  country TEXT,
+  address TEXT
+);
+CREATE TABLE IF NOT EXISTS purchasing_groups (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  buyer TEXT,
+  email TEXT,
+  release_limit INTEGER            -- cents; NULL = use the global release limit
+);
+CREATE TABLE IF NOT EXISTS sales_areas (
+  id INTEGER PRIMARY KEY,
+  sales_org TEXT NOT NULL,
+  distr_channel TEXT NOT NULL,
+  division TEXT NOT NULL,
+  name TEXT NOT NULL,
+  default_warehouse_id INTEGER REFERENCES warehouses(id),
+  UNIQUE (sales_org, distr_channel, division)
+);
+CREATE TABLE IF NOT EXISTS payment_terms (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  net_days INTEGER NOT NULL CHECK (net_days >= 0)
+);
+CREATE TABLE IF NOT EXISTS tax_codes (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('INPUT','OUTPUT')),
+  rate_pct REAL NOT NULL CHECK (rate_pct >= 0 AND rate_pct <= 100),
+  account_id INTEGER NOT NULL REFERENCES accounts(id)
+);
+CREATE TABLE IF NOT EXISTS cost_centers (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  responsible TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS fi_document_types (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  manual_allowed INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS units (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  dimension TEXT NOT NULL DEFAULT 'QUANTITY'
+);
+CREATE TABLE IF NOT EXISTS material_groups (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS material_types (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  purchasable INTEGER NOT NULL DEFAULT 1,
+  sellable INTEGER NOT NULL DEFAULT 1
+);
+`;
+
+/** New columns on existing tables. Runs for new and upgraded databases alike. */
+function addColumns(db: DB) {
+  const has = (t: string, c: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).some((r) => r.name === c);
+  const add = (t: string, c: string, def: string) => !has(t, c) && db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`);
+  add('warehouses', 'plant_id', 'INTEGER REFERENCES plants(id)');
+  add('vendors', 'payment_terms_id', 'INTEGER REFERENCES payment_terms(id)');
+  add('customers', 'payment_terms_id', 'INTEGER REFERENCES payment_terms(id)');
+  add('customers', 'tax_code_id', 'INTEGER REFERENCES tax_codes(id)');
+  add('materials', 'material_group_id', 'INTEGER REFERENCES material_groups(id)');
+  add('purchase_orders', 'purchasing_group_id', 'INTEGER REFERENCES purchasing_groups(id)');
+  add('sales_orders', 'sales_area_id', 'INTEGER REFERENCES sales_areas(id)');
+  add('vendor_invoices', 'tax_code_id', 'INTEGER REFERENCES tax_codes(id)');
+  add('vendor_invoices', 'tax_amount', 'INTEGER NOT NULL DEFAULT 0');
+  add('customer_invoices', 'tax_code_id', 'INTEGER REFERENCES tax_codes(id)');
+  add('customer_invoices', 'tax_amount', 'INTEGER NOT NULL DEFAULT 0');
+  add('journal_lines', 'cost_center_id', 'INTEGER REFERENCES cost_centers(id)');
+  add('journal_entries', 'doc_type', 'TEXT');
+}
+
+/** FI document type per posting source (like SAP's SA, WE, RE, ...). */
+export const SOURCE_DOC_TYPES: Record<string, string> = {
+  MANUAL: 'SA',
+  GR: 'WE',
+  GI: 'WA',
+  INITIAL: 'WA',
+  ADJUST: 'WI',
+  INVOICE: 'RE',
+  PAYMENT: 'KZ',
+  DELIVERY: 'WL',
+  BILLING: 'RV',
+  RECEIPT: 'DZ',
+};
+
 /** SAP-style number ranges per document type. */
 const NUMBER_RANGES: [string, number][] = [
   ['JE', 100000001],   // FI documents
@@ -354,9 +460,11 @@ const ACCOUNTS: [string, string, string][] = [
   ['110000', 'Bank - Main Account', 'ASSET'],
   ['120000', 'Accounts Receivable', 'ASSET'],
   ['140000', 'Inventory - Materials', 'ASSET'],
+  ['154000', 'Input Tax Receivable', 'ASSET'],
   ['160000', 'Property, Plant & Equipment', 'ASSET'],
   ['200000', 'Accounts Payable', 'LIABILITY'],
   ['210000', 'GR/IR Clearing', 'LIABILITY'],
+  ['175000', 'Output Tax Payable', 'LIABILITY'],
   ['220000', 'Accrued Liabilities', 'LIABILITY'],
   ['300000', 'Share Capital', 'EQUITY'],
   ['310000', 'Retained Earnings', 'EQUITY'],
@@ -394,7 +502,10 @@ export function openDb(file?: string): DB {
   db.pragma('foreign_keys = ON');
   migrate(db);
   db.exec(SCHEMA);
+  db.exec(CUSTOMIZING_SCHEMA);
+  addColumns(db);
   bootstrap(db);
+  bootstrapCustomizing(db);
   return db;
 }
 
@@ -481,4 +592,63 @@ export function determineAccount(db: DB, key: string): number {
 
 export function getSetting(db: DB, key: string): string | undefined {
   return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
+}
+
+/**
+ * Default customizing, inserted only where missing so user changes survive restarts.
+ * Also links data from older versions (warehouses without plant, partners with only a number of days).
+ */
+function bootstrapCustomizing(db: DB) {
+  db.transaction(() => {
+    if (!db.prepare('SELECT 1 FROM plants').get()) db.prepare("INSERT INTO plants(code, name, country) VALUES ('1000', 'Main Plant', 'US')").run();
+    db.prepare('UPDATE warehouses SET plant_id = (SELECT MIN(id) FROM plants) WHERE plant_id IS NULL').run();
+
+    const mt = db.prepare('INSERT OR IGNORE INTO material_types(code, description, purchasable, sellable) VALUES (?, ?, ?, ?)');
+    mt.run('RAW', 'Raw material (ROH)', 1, 1);
+    mt.run('TRADING', 'Trading goods (HAWA)', 1, 1);
+    mt.run('FINISHED', 'Finished product (FERT)', 0, 1);
+    mt.run('CONSUMABLE', 'Operating supplies (HIBE)', 1, 0);
+
+    const u = db.prepare('INSERT OR IGNORE INTO units(code, description, dimension) VALUES (?, ?, ?)');
+    for (const [c, d, dim] of [
+      ['EA', 'Each', 'QUANTITY'], ['PC', 'Piece', 'QUANTITY'], ['BOX', 'Box', 'QUANTITY'], ['PAL', 'Pallet', 'QUANTITY'],
+      ['KG', 'Kilogram', 'MASS'], ['G', 'Gram', 'MASS'], ['TO', 'Metric ton', 'MASS'],
+      ['M', 'Meter', 'LENGTH'], ['CM', 'Centimeter', 'LENGTH'], ['M2', 'Square meter', 'AREA'],
+      ['L', 'Liter', 'VOLUME'], ['ML', 'Milliliter', 'VOLUME'], ['H', 'Hour', 'TIME'],
+    ]) u.run(c, d, dim);
+    db.prepare("INSERT OR IGNORE INTO units(code, description) SELECT DISTINCT uom, uom FROM materials").run();
+
+    const dt = db.prepare('INSERT OR IGNORE INTO fi_document_types(code, description, manual_allowed) VALUES (?, ?, ?)');
+    for (const [c, d, m] of [
+      ['SA', 'G/L account document', 1], ['AB', 'Accounting document', 1], ['WE', 'Goods receipt', 0], ['WA', 'Goods issue', 0],
+      ['WI', 'Inventory document', 0], ['WL', 'Goods issue for delivery', 0], ['RE', 'Invoice receipt (gross)', 0],
+      ['KZ', 'Vendor payment', 0], ['RV', 'Billing document transfer', 0], ['DZ', 'Customer payment', 0],
+    ] as const) dt.run(c, d, m);
+    db.prepare("UPDATE journal_entries SET doc_type = CASE source " +
+      Object.entries(SOURCE_DOC_TYPES).map(([src, t]) => `WHEN '${src}' THEN '${t}'`).join(' ') +
+      " ELSE 'SA' END WHERE doc_type IS NULL AND source <> 'REVERSAL'").run();
+    db.prepare(`UPDATE journal_entries SET doc_type = (SELECT o.doc_type FROM journal_entries o WHERE o.id = journal_entries.reversal_of)
+                WHERE doc_type IS NULL AND source = 'REVERSAL'`).run();
+
+    const tax = db.prepare(`INSERT OR IGNORE INTO tax_codes(code, description, direction, rate_pct, account_id)
+                            SELECT ?, ?, ?, ?, id FROM accounts WHERE code = ?`);
+    tax.run('V0', 'Input tax 0%', 'INPUT', 0, '154000');
+    tax.run('V1', 'Input tax 10%', 'INPUT', 10, '154000');
+    tax.run('A0', 'Output tax 0%', 'OUTPUT', 0, '175000');
+    tax.run('A1', 'Output tax 10%', 'OUTPUT', 10, '175000');
+
+    const pt = db.prepare('INSERT OR IGNORE INTO payment_terms(code, description, net_days) VALUES (?, ?, ?)');
+    pt.run('NT00', 'Due immediately', 0);
+    for (const d of [14, 30, 45, 60]) pt.run(`NT${d}`, `Net ${d} days`, d);
+    for (const t of ['vendors', 'customers']) {
+      for (const r of db.prepare(`SELECT DISTINCT payment_terms_days d FROM ${t} WHERE payment_terms_id IS NULL`).all() as { d: number }[])
+        pt.run(`NT${String(r.d).padStart(2, '0')}`, `Net ${r.d} days`, r.d);
+      db.prepare(`UPDATE ${t} SET payment_terms_id = (SELECT id FROM payment_terms p WHERE p.net_days = ${t}.payment_terms_days ORDER BY id LIMIT 1)
+                  WHERE payment_terms_id IS NULL`).run();
+    }
+
+    if (!db.prepare('SELECT 1 FROM sales_areas').get())
+      db.prepare("INSERT INTO sales_areas(sales_org, distr_channel, division, name) VALUES ('1000', '10', '00', 'Direct sales')").run();
+    db.prepare('UPDATE sales_orders SET sales_area_id = (SELECT MIN(id) FROM sales_areas) WHERE sales_area_id IS NULL').run();
+  })();
 }
