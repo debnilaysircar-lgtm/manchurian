@@ -6,3 +6,4 @@ server/data/
 .env
 dist-demo/
 test-results/
+*.tsbuildinfo
