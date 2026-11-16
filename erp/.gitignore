@@ -5,3 +5,4 @@ server/data/
 *.sqlite-*
 .env
 dist-demo/
+test-results/

@@ -16,7 +16,7 @@ export function Card({ title, actions, children, className = '' }: { title?: Rea
   return (
     <div className={`card ${className}`}>
       {(title || actions) && (
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
           <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
           {actions}
         </div>

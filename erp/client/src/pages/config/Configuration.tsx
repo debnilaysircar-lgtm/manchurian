@@ -105,7 +105,7 @@ function SettingsForm({ area }: { area: string }) {
         <div className="divide-y divide-slate-100">
           {settings.map((s) => {
             const set = (v: any) => setForm((f) => ({ ...f, [s.key]: v }));
-            const v = form[s.key];
+            const v = s.key in form ? form[s.key] : s.value;
             const id = `cfg-${s.key}`;
             return (
               <div key={s.key} className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_320px] md:items-center">

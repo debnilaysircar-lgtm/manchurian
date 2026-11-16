@@ -23,7 +23,7 @@ export function SOList() {
       <Card
         title={`${data?.length ?? 0} orders`}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input className="input w-48" placeholder="SO, customer or ref." value={search} onChange={(e) => setSearch(e.target.value)} />
             <select className="input w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">All statuses</option>
@@ -393,7 +393,7 @@ function BillingModal({ so, onClose, onDone }: { so: any; onClose: () => void; o
               <td className="num">{fmtMoney((Number(qty[l.id]) || 0) * l.unit_price)}</td>
             </tr>
           ))}</tbody>
-          <tfoot>
+          <tfoot className={taxCodes ? '' : 'invisible'}>
             <tr><td colSpan={5} className="px-3 py-1 text-right text-slate-500">Net amount</td><td className="num px-3">{fmtMoney(total)}</td></tr>
             <tr><td colSpan={5} className="px-3 py-1 text-right text-slate-500">Output tax {rate ? `${rate}%` : ''}</td><td className="num px-3">{fmtMoney(tax)}</td></tr>
             <tr className="font-semibold"><td colSpan={5} className="px-3 py-2 text-right">Invoice total (gross)</td><td className="num px-3">{fmtMoney(total + tax)}</td></tr>

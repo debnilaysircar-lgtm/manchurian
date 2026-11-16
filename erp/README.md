@@ -60,6 +60,24 @@ npm run build        # build the UI into client/dist
 npm start            # production mode: the API also serves the built UI on http://localhost:4000
 ```
 
+### Testing everything
+
+```bash
+npm run test:all
+```
+
+One command runs every check and prints a summary, plus `test-results/report.md`. It exits non-zero if anything fails, so it can gate CI.
+
+| Step | What it checks |
+|---|---|
+| Type checks | Server and client TypeScript |
+| Unit and integration tests | Business logic (`server/test`): postings, valuation, three-way match, credit check, configuration rules, IDocs, migrations |
+| Builds | Client and single-file demo |
+| API tests (`e2e/api.mjs`) | A real server on a fresh database: every endpoint, sign-in, role restrictions, validation errors, an order-to-cash cycle, IDoc inbound |
+| Browser tests (`e2e/browser.mjs`) | Real UI flows, each on its own fresh server: roles, procure to pay, order to cash, inventory and cost centers, configuration, IDoc exchange, phone layout. Plus the demo page under a strict CSP: boot, persistence, reset, in-browser posting |
+
+Options: `--no-build` (reuse existing builds), `--no-browser` (skip UI tests), `--no-demo` (skip the demo build and its tests). Failed browser tests save a screenshot to `test-results/`. Browser tests need Playwright (`npm i -D playwright && npx playwright install chromium`); without it they are skipped with that hint.
+
 ### Environment variables (server)
 
 | Variable | Default | Purpose |
