@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, fmtMoney, qs, todayIso, useApi } from '../../api';
 import { useAuth } from '../../auth';
+import { useConfirm } from '../../components/confirm';
 import { Card, Empty, ErrorBanner, Field, Loading, PageHeader, Status } from '../../components/ui';
 
 const SOURCES = ['MANUAL', 'GR', 'GI', 'INITIAL', 'ADJUST', 'INVOICE', 'PAYMENT', 'DELIVERY', 'BILLING', 'RECEIPT', 'REVERSAL'];
@@ -157,11 +158,12 @@ export function JournalDetail() {
   const nav = useNavigate();
   const { data: j, error, reload } = useApi<any>(`/journals/${id}`);
   const [actionError, setActionError] = useState<string | null>(null);
+  const ask = useConfirm();
   if (error) return <ErrorBanner error={error} />;
   if (!j) return <Loading />;
 
   const reverse = async () => {
-    if (!confirm(`Reverse document ${j.doc_no}? A mirror entry will be posted today.`)) return;
+    if (!(await ask(`Reverse document ${j.doc_no}? A mirror entry will be posted today.`, 'Reverse'))) return;
     try {
       const r = await api<{ id: number }>(`/journals/${j.id}/reverse`, { body: {} });
       reload();

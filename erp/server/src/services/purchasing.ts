@@ -4,6 +4,7 @@ import { badRequest, notFound } from '../lib/errors.ts';
 import { fromCents, roundQty, today } from '../lib/money.ts';
 import { postJournal, type JournalLineInput } from './finance.ts';
 import { getMaterial, receiveIntoStock, recordMovement } from './inventory.ts';
+import { getConfig } from './config.ts';
 
 // ---------- Purchase orders ----------
 
@@ -74,11 +75,15 @@ export function updatePO(db: DB, id: number, input: POInput) {
   })();
 }
 
-export function setPOStatus(db: DB, id: number, action: 'release' | 'cancel' | 'close') {
+export function setPOStatus(db: DB, id: number, action: 'release' | 'cancel' | 'close', role = 'admin') {
   const po = getPORow(db, id);
   const lines = db.prepare('SELECT received_qty, invoiced_qty FROM po_lines WHERE po_id = ?').all(id) as any[];
   if (action === 'release') {
     if (po.status !== 'DRAFT') throw badRequest('Only draft purchase orders can be released');
+    const limit = toCentsNum(getConfig<number>(db, 'po_release_limit'));
+    const value = (db.prepare('SELECT COALESCE(SUM(ROUND(qty * unit_price)), 0) v FROM po_lines WHERE po_id = ?').get(id) as { v: number }).v;
+    if (limit > 0 && value > limit && role !== 'admin')
+      throw badRequest(`Net value ${fromCents(value)} is above the release limit of ${fromCents(limit)}; an administrator must release this order`);
     db.prepare("UPDATE purchase_orders SET status = 'RELEASED' WHERE id = ?").run(id);
   } else if (action === 'cancel') {
     if (!['DRAFT', 'RELEASED'].includes(po.status) || lines.some((l) => l.received_qty > 0))
@@ -232,6 +237,11 @@ export function postInvoice(db: DB, poId: number, input: InvoiceInput, userId: n
       const open = roundQty(pl.received_qty - pl.invoiced_qty);
       if (qty > open) throw badRequest(`Line ${pl.line_no} (${mat.code}): only ${open} received and not yet invoiced`);
       if (!(it.unitPrice >= 0)) throw badRequest(`Invalid price on line ${pl.line_no}`);
+      const tolerance = getConfig<number>(db, 'invoice_price_tolerance_pct');
+      if (tolerance > 0 && pl.unit_price > 0 && (Math.abs(it.unitPrice - pl.unit_price) / pl.unit_price) * 100 > tolerance + 1e-9)
+        throw badRequest(
+          `Line ${pl.line_no} (${mat.code}): invoice price ${fromCents(it.unitPrice)} differs from PO price ${fromCents(pl.unit_price)} by more than the ${tolerance}% tolerance`,
+        );
       const amount = Math.round(qty * it.unitPrice);
       const grirAmount = Math.round(qty * pl.unit_price);
       const diff = amount - grirAmount;
@@ -262,6 +272,8 @@ export function postInvoice(db: DB, poId: number, input: InvoiceInput, userId: n
     return { id: invId, docNo, journalDocNo: journal.docNo };
   })();
 }
+
+const toCentsNum = (amount: number) => Math.round(amount * 100);
 
 function addDays(date: string, days: number) {
   const d = new Date(date + 'T00:00:00Z');

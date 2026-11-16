@@ -15,7 +15,6 @@ const NAV: { section: string; items: { to: string; label: string; admin?: boolea
       { to: '/finance/ledger', label: 'Account Ledger' },
       { to: '/finance/statements', label: 'Financial Statements' },
       { to: '/finance/ap-aging', label: 'AP Aging' },
-      { to: '/finance/account-determination', label: 'Account Determination' },
     ],
   },
   {
@@ -44,6 +43,24 @@ const NAV: { section: string; items: { to: string; label: string; admin?: boolea
       { to: '/inventory/warehouses', label: 'Warehouses' },
     ],
   },
+  {
+    section: 'Integration',
+    items: [
+      { to: '/idocs', label: 'IDoc Monitor' },
+      { to: '/idocs/exchange', label: 'IDoc Exchange' },
+    ],
+  },
+  {
+    section: 'Configuration',
+    items: [
+      { to: '/config/general', label: 'General & Numbering' },
+      { to: '/config/finance', label: 'Finance' },
+      { to: '/config/purchasing', label: 'Purchasing' },
+      { to: '/config/sales', label: 'Sales' },
+      { to: '/config/inventory', label: 'Inventory' },
+      { to: '/config/idoc', label: 'IDoc & Partners' },
+    ],
+  },
   { section: 'Administration', items: [{ to: '/admin/users', label: 'Users', admin: true }] },
 ];
 
@@ -52,13 +69,14 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="min-h-screen">
-      <header className="print:hidden sticky top-0 z-40 flex h-12 items-center justify-between bg-shell px-4 text-white">
+      <header style={{ top: 'env(safe-area-inset-top, 0px)' }} className="print:hidden sticky z-40 flex h-12 items-center justify-between bg-shell px-4 text-white">
         <div className="flex items-center gap-3">
           <button className="md:hidden" onClick={() => setOpen(!open)} aria-label="Toggle menu">
             ☰
           </button>
           <span className="rounded bg-brand-500 px-1.5 py-0.5 text-xs font-bold">ERP</span>
           <span className="font-semibold">Manchurian ERP</span>
+          {import.meta.env.VITE_DEMO && <span className="rounded border border-white/30 px-1.5 text-[11px] text-slate-300">Demo · runs in your browser</span>}
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="hidden sm:inline">

@@ -3,6 +3,7 @@ import type { DB } from './db.ts';
 import { postJournal } from './services/finance.ts';
 import { postGoodsMovement } from './services/inventory.ts';
 import { createPO, postGoodsReceipt, postInvoice, postPayment, setPOStatus } from './services/purchasing.ts';
+import { seedIdocDemo } from './services/idoc.ts';
 import { createSO, postBilling, postDelivery, postReceipt, setSOStatus } from './services/sales.ts';
 
 const day = (offset: number) => {
@@ -15,6 +16,7 @@ const day = (offset: number) => {
 export function seedDemoData(db: DB) {
   seedProcurementDemo(db);
   seedSalesDemo(db);
+  seedIdocDemo(db, { admin: 1 });
 }
 
 function seedProcurementDemo(db: DB) {

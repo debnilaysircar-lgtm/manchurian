@@ -3,6 +3,7 @@ import { determineAccount, nextNumber } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { fromCents, roundQty, today } from '../lib/money.ts';
 import { postJournal, type JournalLineInput } from './finance.ts';
+import { getConfig } from './config.ts';
 
 export const MOVEMENT_TYPES: Record<string, string> = {
   '101': 'Goods receipt for purchase order',
@@ -146,6 +147,9 @@ export interface MovementInput {
 export function postGoodsMovement(db: DB, input: MovementInput, userId: number | null) {
   const { movementType: type, warehouseId, items } = input;
   if (!MOVEMENT_TYPES[type] || ['101', '601'].includes(type)) throw badRequest(`Movement type ${type} cannot be posted here`);
+  if (!getConfig<string[]>(db, 'movement_types_enabled').includes(type)) throw badRequest(`Movement type ${type} is not enabled in configuration`);
+  if (getConfig<boolean>(db, 'movement_note_required') && ['201', '701', '702'].includes(type) && !input.note?.trim())
+    throw badRequest(`A note is required for movement type ${type}`);
   if (!items.length) throw badRequest('At least one item is required');
   assertWarehouse(db, warehouseId);
   if (type === '301') {

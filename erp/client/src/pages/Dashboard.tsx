@@ -9,6 +9,12 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title="Dashboard" subtitle={`${d.company} · all amounts in ${d.currency}`} />
+      {d.idocErrors > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <span>{d.idocErrors} IDoc{d.idocErrors === 1 ? ' needs' : 's need'} attention (not posted or not sent).</span>
+          <Link className="font-medium underline" to="/idocs">Open IDoc monitor</Link>
+        </div>
+      )}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Cash & bank" value={fmtMoney(d.cash)} />
         <Kpi label="Revenue YTD" value={fmtMoney(d.revenueYtd)} />

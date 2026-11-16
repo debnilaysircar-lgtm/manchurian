@@ -13,6 +13,8 @@ import AccountDetermination from './pages/finance/AccountDetermination';
 import { PODetail, POEdit, POList } from './pages/purchasing/PurchaseOrders';
 import { MovementList, MovementNew, StockOverview } from './pages/inventory/Inventory';
 import { Loading } from './components/ui';
+import Configuration from './pages/config/Configuration';
+import { IdocDetail, IdocExchange, IdocMonitor } from './pages/idoc/Idocs';
 
 export default function App() {
   const { user, ready } = useAuth();
@@ -54,6 +56,10 @@ export default function App() {
         <Route path="/inventory/materials" element={<Materials />} />
         <Route path="/inventory/warehouses" element={<Warehouses />} />
         <Route path="/admin/users" element={<Users />} />
+        <Route path="/config/:area" element={<Configuration />} />
+        <Route path="/idocs" element={<IdocMonitor />} />
+        <Route path="/idocs/exchange" element={<IdocExchange />} />
+        <Route path="/idocs/:id" element={<IdocDetail />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

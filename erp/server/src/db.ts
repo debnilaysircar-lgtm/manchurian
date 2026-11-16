@@ -199,6 +199,63 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- ===== IDoc / ALE =====
+CREATE TABLE IF NOT EXISTS idoc_ports (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  port_type TEXT NOT NULL CHECK (port_type IN ('FILE','XML_HTTP')),
+  target TEXT NOT NULL,
+  description TEXT
+);
+
+-- Partner profiles (WE20)
+CREATE TABLE IF NOT EXISTS idoc_partners (
+  id INTEGER PRIMARY KEY,
+  partner_type TEXT NOT NULL CHECK (partner_type IN ('LS','LI','KU')),  -- logical system, vendor, customer
+  partner_no TEXT NOT NULL,
+  name TEXT NOT NULL,
+  port_id INTEGER REFERENCES idoc_ports(id),
+  is_active INTEGER NOT NULL DEFAULT 1,
+  UNIQUE (partner_type, partner_no)
+);
+
+CREATE TABLE IF NOT EXISTS idoc_partner_messages (
+  id INTEGER PRIMARY KEY,
+  partner_id INTEGER NOT NULL REFERENCES idoc_partners(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK (direction IN ('OUT','IN')),
+  message_type TEXT NOT NULL,
+  output_mode TEXT NOT NULL DEFAULT 'IMMEDIATE' CHECK (output_mode IN ('IMMEDIATE','COLLECT')),
+  UNIQUE (partner_id, direction, message_type)
+);
+
+CREATE TABLE IF NOT EXISTS idocs (
+  id INTEGER PRIMARY KEY,
+  docnum TEXT NOT NULL UNIQUE,
+  direction TEXT NOT NULL CHECK (direction IN ('OUT','IN')),
+  message_type TEXT NOT NULL,
+  idoc_type TEXT NOT NULL,
+  partner_type TEXT NOT NULL,
+  partner_no TEXT NOT NULL,
+  partner_id INTEGER REFERENCES idoc_partners(id),
+  port TEXT,
+  status TEXT NOT NULL,
+  ref_type TEXT,          -- PO, SO, DELIVERY, BILLING, VENDOR_INVOICE, GR, MATERIAL, CUSTOMER, VENDOR
+  ref_id INTEGER,
+  ref_doc_no TEXT,
+  data TEXT NOT NULL,     -- JSON: { control, segments }
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS idoc_status (
+  id INTEGER PRIMARY KEY,
+  idoc_id INTEGER NOT NULL REFERENCES idocs(id),
+  status TEXT NOT NULL,
+  message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ===== Sales =====
 CREATE TABLE IF NOT EXISTS customers (
   id INTEGER PRIMARY KEY,
@@ -289,6 +346,7 @@ const NUMBER_RANGES: [string, number][] = [
   ['SO', 10000001],    // sales orders
   ['BIL', 90000001],   // customer invoices (billing documents)
   ['RCP', 1400000001], // incoming payments
+  ['IDOC', 1],         // IDoc numbers (shown with 16 digits)
 ];
 
 const ACCOUNTS: [string, string, string][] = [

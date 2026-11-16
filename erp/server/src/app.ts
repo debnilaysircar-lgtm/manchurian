@@ -8,6 +8,7 @@ import { authenticate, login } from './auth.ts';
 import { errorMiddleware, handle, parse } from './lib/errors.ts';
 import { masterDataRoutes } from './routes/masterData.ts';
 import { transactionRoutes } from './routes/transactions.ts';
+import { integrationRoutes } from './routes/integration.ts';
 
 export function createApp(db: DB) {
   const app = express();
@@ -24,6 +25,7 @@ export function createApp(db: DB) {
   app.get('/api/auth/me', handle((req) => req.user));
   app.use('/api', masterDataRoutes(db));
   app.use('/api', transactionRoutes(db));
+  app.use('/api', integrationRoutes(db));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
   // Serve the built client in production

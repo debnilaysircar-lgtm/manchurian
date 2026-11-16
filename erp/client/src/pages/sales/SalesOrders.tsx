@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, fmtMoney, fmtQty, qs, todayIso, useApi } from '../../api';
 import { useAuth } from '../../auth';
+import { useConfirm } from '../../components/confirm';
 import { Card, Empty, ErrorBanner, Field, Loading, Modal, PageHeader, Status, SuccessBanner } from '../../components/ui';
 
 const STATUSES = ['DRAFT', 'CONFIRMED', 'PARTIALLY_DELIVERED', 'DELIVERED', 'CLOSED', 'CANCELLED'];
@@ -193,11 +194,12 @@ export function SODetail() {
   const [modal, setModal] = useState<'dlv' | 'bil' | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const ask = useConfirm();
   if (error) return <ErrorBanner error={error} />;
   if (!so) return <Loading />;
 
   const act = async (action: string, confirmText: string) => {
-    if (!confirm(confirmText)) return;
+    if (!(await ask(confirmText))) return;
     try {
       await api(`/sales-orders/${so.id}/${action}`, { body: {} });
       reload();
@@ -297,7 +299,7 @@ function DeliveryModal({ so, onClose, onDone }: { so: any; onClose: () => void; 
       const r = await api(`/sales-orders/${so.id}/delivery`, {
         body: { postingDate, note: note || undefined, lines: open.map((l: any) => ({ soLineId: l.id, qty: Number(qty[l.id]) || 0 })) },
       });
-      onDone(`Delivery ${r.docNo} posted${r.journalDocNo ? `, FI document ${r.journalDocNo}` : ''}`);
+      onDone(`Delivery ${r.docNo} posted${r.journalDocNo ? `, FI document ${r.journalDocNo}` : ''}${r.idoc ? `. IDoc ${r.idoc} (DELVRY07) sent to the customer` : ''}`);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -339,7 +341,7 @@ function BillingModal({ so, onClose, onDone }: { so: any; onClose: () => void; o
       const r = await api(`/sales-orders/${so.id}/billing`, {
         body: { invoiceDate: head.invoiceDate, dueDate: head.dueDate || undefined, lines: open.map((l: any) => ({ soLineId: l.id, qty: Number(qty[l.id]) || 0 })) },
       });
-      onDone(`Customer invoice ${r.docNo} posted (FI document ${r.journalDocNo})`);
+      onDone(`Customer invoice ${r.docNo} posted (FI document ${r.journalDocNo})${r.idoc ? `. IDoc ${r.idoc} (INVOIC02) sent to the customer` : ''}`);
     } catch (err) {
       setError((err as Error).message);
     }

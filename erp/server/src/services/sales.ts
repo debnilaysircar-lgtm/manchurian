@@ -4,6 +4,7 @@ import { badRequest, notFound } from '../lib/errors.ts';
 import { fromCents, roundQty, today } from '../lib/money.ts';
 import { postJournal, type JournalLineInput } from './finance.ts';
 import { getMaterial, issueFromStock, recordMovement } from './inventory.ts';
+import { getConfig } from './config.ts';
 
 const addDays = (date: string, days: number) => {
   const d = new Date(date + 'T00:00:00Z');
@@ -52,8 +53,10 @@ function validateSO(db: DB, input: SOInput) {
 function insertLines(db: DB, soId: number, lines: SOInput['lines']) {
   const ins = db.prepare('INSERT INTO so_lines(so_id, line_no, material_id, qty, unit_price) VALUES (?, ?, ?, ?, ?)');
   const listPrice = db.prepare('SELECT sales_price FROM materials WHERE id = ?');
+  const override = getConfig<boolean>(db, 'sales_price_override');
   lines.forEach((l, i) => {
-    const price = l.unitPrice ?? (listPrice.get(l.materialId) as { sales_price: number }).sales_price;
+    const list = (listPrice.get(l.materialId) as { sales_price: number }).sales_price;
+    const price = override ? l.unitPrice ?? list : list;
     ins.run(soId, (i + 1) * 10, l.materialId, roundQty(l.qty), Math.round(price));
   });
 }
@@ -121,7 +124,7 @@ export function setSOStatus(db: DB, id: number, action: 'confirm' | 'cancel' | '
     if (so.status !== 'DRAFT') throw badRequest('Only draft sales orders can be confirmed');
     const c = getCustomer(db, so.customer_id);
     if (!c.is_active) throw badRequest('Customer is blocked');
-    if (c.credit_limit > 0) {
+    if (c.credit_limit > 0 && getConfig<boolean>(db, 'credit_check_enabled')) {
       const exposure = creditExposure(db, c.id, id) + orderValue(db, id);
       if (exposure > c.credit_limit)
         throw badRequest(`Credit limit exceeded: exposure would be ${fromCents(exposure)} against a limit of ${fromCents(c.credit_limit)}`);

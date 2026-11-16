@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, fmtMoney, fmtQty, qs, todayIso, useApi } from '../../api';
 import { useAuth } from '../../auth';
+import { useConfirm } from '../../components/confirm';
 import { Card, Empty, ErrorBanner, Field, Loading, Modal, PageHeader, Status, SuccessBanner } from '../../components/ui';
 
 const STATUSES = ['DRAFT', 'RELEASED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CLOSED', 'CANCELLED'];
@@ -164,13 +165,15 @@ export function PODetail() {
   const [modal, setModal] = useState<'gr' | 'inv' | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const ask = useConfirm();
   if (error) return <ErrorBanner error={error} />;
   if (!po) return <Loading />;
 
   const act = async (action: string, confirmText: string) => {
-    if (!confirm(confirmText)) return;
+    if (!(await ask(confirmText))) return;
     try {
-      await api(`/purchase-orders/${po.id}/${action}`, { body: {} });
+      const r = await api(`/purchase-orders/${po.id}/${action}`, { body: {} });
+      if (r.idoc) setMsg(`Purchase order released. IDoc ${r.idoc} (ORDERS05) created for the vendor.`);
       reload();
     } catch (e) {
       setActionError((e as Error).message);

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:demo": "vite build --config vite.demo.config.ts && node scripts/to-artifact.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -20,8 +21,10 @@
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.6.2",
     "postcss": "^8.5.33",
+    "sql.js": "^1.16.0",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vite-plugin-singlefile": "^2.3.4"
   }
 }

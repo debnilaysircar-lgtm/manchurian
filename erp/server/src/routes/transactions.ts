@@ -9,6 +9,7 @@ import * as fi from '../services/finance.ts';
 import * as inv from '../services/inventory.ts';
 import * as mm from '../services/purchasing.ts';
 import * as sd from '../services/sales.ts';
+import * as idoc from '../services/idoc.ts';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const optDate = date.optional().or(z.literal('').transform(() => undefined));
@@ -101,8 +102,11 @@ export function transactionRoutes(db: DB) {
   r.get('/purchase-orders/:id', handle((req) => mm.getPO(db, pid(req.params.id))));
   r.post('/purchase-orders', requireRole('purchasing'), handle((req) => mm.createPO(db, toPO(parse(poSchema, req.body)), uid(req))));
   r.put('/purchase-orders/:id', requireRole('purchasing'), handle((req) => mm.updatePO(db, pid(req.params.id), toPO(parse(poSchema, req.body)))));
-  r.post('/purchase-orders/:id/:action(release|cancel|close)', requireRole('purchasing'), handle((req) =>
-    mm.setPOStatus(db, pid(req.params.id), req.params.action as 'release' | 'cancel' | 'close')));
+  r.post('/purchase-orders/:id/:action(release|cancel|close)', requireRole('purchasing'), handle((req) => {
+    const id = pid(req.params.id);
+    mm.setPOStatus(db, id, req.params.action as 'release' | 'cancel' | 'close', req.user!.role);
+    return { ok: true, idoc: req.params.action === 'release' ? idoc.onPOReleased(db, id, uid(req)) : null };
+  }));
   r.post('/purchase-orders/:id/goods-receipt', requireRole('warehouse', 'purchasing'), handle((req) => {
     const d = parse(
       z.object({ postingDate: optDate, note: z.string().max(200).optional(), lines: z.array(z.object({ poLineId: intId, qty: z.coerce.number().min(0) })).min(1) }),
@@ -157,14 +161,17 @@ export function transactionRoutes(db: DB) {
       z.object({ postingDate: optDate, note: z.string().max(200).optional(), lines: z.array(z.object({ soLineId: intId, qty: z.coerce.number().min(0) })).min(1) }),
       req.body,
     );
-    return sd.postDelivery(db, pid(req.params.id), d, uid(req));
+    const soId = pid(req.params.id);
+    const r = sd.postDelivery(db, soId, d, uid(req));
+    return { ...r, idoc: idoc.onDelivery(db, soId, r.docNo, uid(req)) };
   }));
   r.post('/sales-orders/:id/billing', requireRole('sales', 'finance'), handle((req) => {
     const d = parse(
       z.object({ invoiceDate: optDate, dueDate: optDate, lines: z.array(z.object({ soLineId: intId, qty: z.coerce.number().min(0) })).optional() }),
       req.body ?? {},
     );
-    return sd.postBilling(db, pid(req.params.id), d, uid(req));
+    const r = sd.postBilling(db, pid(req.params.id), d, uid(req));
+    return { ...r, idoc: idoc.onBilling(db, r.id, uid(req)) };
   }));
   r.get('/customers/:id/credit', handle((req) => {
     const id = pid(req.params.id);
@@ -212,6 +219,7 @@ export function transactionRoutes(db: DB) {
       recentJournals: fi.listJournals(db, {}).slice(0, 8),
       dueSoon: mm.listInvoices(db, { open: true }).slice(0, 8),
       receivablesDue: sd.listCustomerInvoices(db, { open: true }).slice(0, 8),
+      idocErrors: scalar("SELECT COUNT(*) v FROM idocs WHERE status IN ('02','51','56')"),
     };
   }));
 

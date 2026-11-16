@@ -4,3 +4,4 @@ server/data/
 *.sqlite
 *.sqlite-*
 .env
+dist-demo/

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, fmtMoney, fmtQty, qs, todayIso, useApi } from '../../api';
 import { useAuth } from '../../auth';
 import { Card, Empty, ErrorBanner, Field, Loading, PageHeader } from '../../components/ui';
@@ -52,7 +52,8 @@ export function StockOverview() {
 
 export function MovementList() {
   const { can } = useAuth();
-  const initialMaterial = new URLSearchParams(window.location.search).get('material') ?? '';
+  const [params] = useSearchParams();
+  const initialMaterial = params.get('material') ?? '';
   const [f, setF] = useState({ materialId: initialMaterial, warehouseId: '', type: '', from: '', to: '' });
   const { data: materials } = useApi<any[]>('/materials');
   const { data: warehouses } = useApi<any[]>('/warehouses');

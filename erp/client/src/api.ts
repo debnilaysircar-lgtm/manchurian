@@ -1,3 +1,4 @@
+import { send } from '@backend';
 import { useCallback, useEffect, useState } from 'react';
 
 const TOKEN_KEY = 'erp_token';
@@ -25,18 +26,13 @@ export class ApiError extends Error {
 }
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
-  const token = getToken();
-  const res = await fetch(`/api${path}`, {
-    method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/auth/login') {
+  const method = opts.method ?? (opts.body !== undefined ? 'POST' : 'GET');
+  const { status, data } = await send(method, path, opts.body, getToken());
+  if (status === 401 && path !== '/auth/login') {
     setToken(null);
     window.dispatchEvent(new Event('erp:logout'));
   }
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
+  if (status >= 400) throw new ApiError(status, data?.error ?? `Request failed (${status})`);
   return data as T;
 }
 

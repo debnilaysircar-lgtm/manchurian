@@ -2,6 +2,7 @@ import type { DB } from '../db.ts';
 import { nextNumber } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { fromCents, today } from '../lib/money.ts';
+import { getConfig } from './config.ts';
 
 export interface JournalLineInput {
   accountId: number;
@@ -36,6 +37,12 @@ export function postJournal(db: DB, input: JournalInput, userId: number | null):
   const cr = lines.reduce((s, l) => s + l.credit, 0);
   if (dr !== cr) throw badRequest(`Entry is not balanced: debits ${fromCents(dr)} vs credits ${fromCents(cr)}`);
 
+  const postingDate = input.postingDate ?? today();
+  const periodFrom = getConfig<string>(db, 'posting_period_from');
+  const periodTo = getConfig<string>(db, 'posting_period_to');
+  if ((periodFrom && postingDate < periodFrom) || (periodTo && postingDate > periodTo))
+    throw badRequest(`Posting date ${postingDate} is outside the open posting period (${periodFrom || 'any'} to ${periodTo || 'any'})`);
+
   const accStmt = db.prepare('SELECT id, is_active FROM accounts WHERE id = ?');
   for (const l of lines) {
     const acc = accStmt.get(l.accountId) as { id: number; is_active: number } | undefined;
@@ -50,7 +57,7 @@ export function postJournal(db: DB, input: JournalInput, userId: number | null):
         `INSERT INTO journal_entries(doc_no, posting_date, reference, description, source, source_doc, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(docNo, input.postingDate ?? today(), input.reference ?? null, input.description ?? null, input.source, input.sourceDoc ?? null, userId);
+      .run(docNo, postingDate, input.reference ?? null, input.description ?? null, input.source, input.sourceDoc ?? null, userId);
     const id = Number(lastInsertRowid);
     const ins = db.prepare(
       `INSERT INTO journal_lines(entry_id, line_no, account_id, debit, credit, memo, vendor_id, customer_id, material_id)

@@ -63,7 +63,7 @@ export function CustomerInvoiceDetail() {
           title={`Customer Invoice ${inv.doc_no}`}
           subtitle={<>{inv.customer_code} {inv.customer_name} · <Status value={inv.status} /></>}
           actions={<>
-            <button className="btn-secondary" onClick={() => window.print()}>Print</button>
+            {!import.meta.env.VITE_DEMO && <button className="btn-secondary" onClick={() => window.print()}>Print</button>}
             {can('finance', 'sales') && inv.status !== 'PAID' && <button className="btn-primary" onClick={() => setReceiving(true)}>Record payment</button>}
           </>}
         />

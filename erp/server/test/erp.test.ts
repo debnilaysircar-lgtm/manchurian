@@ -101,7 +101,9 @@ test('transfer moves quantity without GL impact', () => {
 });
 
 test('demo data keeps the ledger balanced and the balance sheet in balance', () => {
+  db = openDb(':memory:'); // fresh database: the seeder skips databases that already have data
   seedDemoData(db);
+  assert.ok((db.prepare('SELECT COUNT(*) n FROM sales_orders').get() as { n: number }).n > 0, 'demo data was loaded');
   const tb = trialBalance(db);
   assert.equal(tb.totals.debit, tb.totals.credit);
   const fs = financialStatements(db, '2000-01-01', '2999-12-31').balanceSheet;
