@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import type { DB } from '../db.ts';
 import { requireRole } from '../auth.ts';
 import { handle, notFound, parse, badRequest } from '../lib/errors.ts';
+import { toCents } from '../lib/money.ts';
 
 const id = (v: string) => {
   const n = Number(v);
@@ -28,6 +29,19 @@ const materialSchema = z.object({
   uom: z.string().trim().min(1).max(10).default('EA'),
   material_type: z.enum(['RAW', 'TRADING', 'FINISHED', 'CONSUMABLE']).default('RAW'),
   reorder_level: z.coerce.number().min(0).default(0),
+  sales_price: z.coerce.number().min(0).default(0).transform(toCents),
+  is_active: z.coerce.boolean().default(true),
+});
+
+const customerSchema = z.object({
+  code: z.string().trim().min(1).max(20),
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().or(z.literal('')).nullish(),
+  phone: z.string().trim().max(40).nullish(),
+  address: z.string().trim().max(300).nullish(),
+  tax_id: z.string().trim().max(40).nullish(),
+  payment_terms_days: z.coerce.number().int().min(0).max(365).default(30),
+  credit_limit: z.coerce.number().min(0).default(0).transform(toCents),
   is_active: z.coerce.boolean().default(true),
 });
 
@@ -47,7 +61,7 @@ const accountSchema = z.object({
 const userSchema = z.object({
   username: z.string().trim().min(3).max(40),
   full_name: z.string().trim().min(1).max(120),
-  role: z.enum(['admin', 'finance', 'purchasing', 'warehouse']),
+  role: z.enum(['admin', 'finance', 'purchasing', 'warehouse', 'sales']),
   password: z.string().min(6).optional(),
   is_active: z.coerce.boolean().default(true),
 });
@@ -65,7 +79,7 @@ function crud(
   const cols = Object.keys(schema.shape);
   const toRow = (d: Record<string, unknown>) => cols.map((c) => (typeof d[c] === 'boolean' ? Number(d[c]) : (d[c] ?? null)));
   r.get(path, handle(() => db.prepare(listSql).all()));
-  r.get(`${path}/:id`, handle((req) => db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id(req.params.id)) ?? (() => { throw notFound(table); })()));
+  r.get(`${path}/:id`, handle((req) => db.prepare(`SELECT * FROM (${listSql}) WHERE id = ?`).get(id(req.params.id)) ?? (() => { throw notFound(table); })()));
   r.post(
     path,
     requireRole(...writers),
@@ -92,8 +106,13 @@ export function masterDataRoutes(db: DB) {
   crud(r, db, '/vendors', 'vendors', vendorSchema, ['purchasing', 'finance'], `
     SELECT v.*, COALESCE((SELECT SUM(total - paid_amount) FROM vendor_invoices vi WHERE vi.vendor_id = v.id), 0) / 100.0 AS open_balance
     FROM vendors v ORDER BY v.code`);
-  crud(r, db, '/materials', 'materials', materialSchema, ['purchasing', 'warehouse'], `
-    SELECT m.id, m.code, m.name, m.uom, m.material_type, m.reorder_level, m.is_active,
+  crud(r, db, '/customers', 'customers', customerSchema, ['sales', 'finance'], `
+    SELECT c.id, c.code, c.name, c.email, c.phone, c.address, c.tax_id, c.payment_terms_days, c.is_active,
+           c.credit_limit / 100.0 AS credit_limit,
+           COALESCE((SELECT SUM(total - paid_amount) FROM customer_invoices ci WHERE ci.customer_id = c.id), 0) / 100.0 AS open_balance
+    FROM customers c ORDER BY c.code`);
+  crud(r, db, '/materials', 'materials', materialSchema, ['purchasing', 'warehouse', 'sales'], `
+    SELECT m.id, m.code, m.name, m.uom, m.material_type, m.reorder_level, m.is_active, m.sales_price / 100.0 AS sales_price,
            COALESCE((SELECT SUM(qty) FROM stock s WHERE s.material_id = m.id), 0) AS total_qty,
            m.stock_value / 100.0 AS stock_value
     FROM materials m ORDER BY m.code`);

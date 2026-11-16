@@ -8,6 +8,7 @@ import { fromCents, toCents, today } from '../lib/money.ts';
 import * as fi from '../services/finance.ts';
 import * as inv from '../services/inventory.ts';
 import * as mm from '../services/purchasing.ts';
+import * as sd from '../services/sales.ts';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const optDate = date.optional().or(z.literal('').transform(() => undefined));
@@ -133,6 +134,56 @@ export function transactionRoutes(db: DB) {
   }));
   r.get('/payments', handle(() => mm.listPayments(db)));
 
+  // ---------- Sales ----------
+  const soSchema = z.object({
+    customerId: intId,
+    warehouseId: intId,
+    orderDate: optDate,
+    requestedDate: optDate.nullish(),
+    customerRef: z.string().max(40).nullish(),
+    notes: z.string().max(500).nullish(),
+    lines: z.array(z.object({ materialId: intId, qty: z.coerce.number().positive(), unitPrice: z.coerce.number().min(0).optional() })).min(1),
+  });
+  const toSO = (d: z.infer<typeof soSchema>) => ({ ...d, lines: d.lines.map((l) => ({ ...l, unitPrice: l.unitPrice === undefined ? undefined : toCents(l.unitPrice) })) });
+
+  r.get('/sales-orders', handle((req) => sd.listSOs(db, { status: str(req.query.status), customerId: num(req.query.customerId), search: str(req.query.search) })));
+  r.get('/sales-orders/:id', handle((req) => sd.getSO(db, pid(req.params.id))));
+  r.post('/sales-orders', requireRole('sales'), handle((req) => sd.createSO(db, toSO(parse(soSchema, req.body)), uid(req))));
+  r.put('/sales-orders/:id', requireRole('sales'), handle((req) => sd.updateSO(db, pid(req.params.id), toSO(parse(soSchema, req.body)))));
+  r.post('/sales-orders/:id/:action(confirm|cancel|close)', requireRole('sales'), handle((req) =>
+    sd.setSOStatus(db, pid(req.params.id), req.params.action as 'confirm' | 'cancel' | 'close')));
+  r.post('/sales-orders/:id/delivery', requireRole('warehouse', 'sales'), handle((req) => {
+    const d = parse(
+      z.object({ postingDate: optDate, note: z.string().max(200).optional(), lines: z.array(z.object({ soLineId: intId, qty: z.coerce.number().min(0) })).min(1) }),
+      req.body,
+    );
+    return sd.postDelivery(db, pid(req.params.id), d, uid(req));
+  }));
+  r.post('/sales-orders/:id/billing', requireRole('sales', 'finance'), handle((req) => {
+    const d = parse(
+      z.object({ invoiceDate: optDate, dueDate: optDate, lines: z.array(z.object({ soLineId: intId, qty: z.coerce.number().min(0) })).optional() }),
+      req.body ?? {},
+    );
+    return sd.postBilling(db, pid(req.params.id), d, uid(req));
+  }));
+  r.get('/customers/:id/credit', handle((req) => {
+    const id = pid(req.params.id);
+    const c = db.prepare('SELECT credit_limit FROM customers WHERE id = ?').get(id) as { credit_limit: number } | undefined;
+    if (!c) throw badRequest('Unknown customer');
+    return { creditLimit: fromCents(c.credit_limit), exposure: fromCents(sd.creditExposure(db, id)) };
+  }));
+  r.get('/customer-invoices', handle((req) => sd.listCustomerInvoices(db, { status: str(req.query.status), customerId: num(req.query.customerId), open: req.query.open === 'true' })));
+  r.get('/customer-invoices/:id', handle((req) => sd.getCustomerInvoice(db, pid(req.params.id))));
+  r.post('/customer-invoices/:id/receipt', requireRole('finance', 'sales'), handle((req) => {
+    const d = parse(
+      z.object({ amount: z.coerce.number().positive(), receiptDate: optDate, bankAccountId: intId.optional(), reference: z.string().max(60).optional() }),
+      req.body,
+    );
+    return sd.postReceipt(db, pid(req.params.id), { ...d, amount: toCents(d.amount) }, uid(req));
+  }));
+  r.get('/receipts', handle(() => sd.listReceipts(db)));
+  r.get('/reports/ar-aging', handle((req) => sd.arAging(db, str(req.query.asOf))));
+
   // ---------- Dashboard ----------
   r.get('/dashboard', handle(() => {
     const tb = fi.trialBalance(db).accounts;
@@ -145,6 +196,11 @@ export function transactionRoutes(db: DB) {
       currency: getSetting(db, 'currency'),
       cash,
       inventoryValue: stock.reduce((s, m) => s + m.value, 0),
+      openReceivables: fromCents(scalar("SELECT SUM(total - paid_amount) v FROM customer_invoices WHERE status <> 'PAID'")),
+      overdueReceivables: fromCents(scalar(`SELECT SUM(total - paid_amount) v FROM customer_invoices WHERE status <> 'PAID' AND due_date < date('now')`)),
+      revenueYtd: fi.financialStatements(db, `${today().slice(0, 4)}-01-01`, today()).incomeStatement.totalRevenue,
+      openSOs: scalar("SELECT COUNT(*) v FROM sales_orders WHERE status IN ('CONFIRMED','PARTIALLY_DELIVERED')"),
+      toBill: scalar("SELECT COUNT(DISTINCT so_id) v FROM so_lines sl JOIN sales_orders so ON so.id = sl.so_id WHERE sl.delivered_qty > sl.billed_qty AND so.status NOT IN ('CLOSED','CANCELLED')"),
       openPayables: fromCents(scalar("SELECT SUM(total - paid_amount) v FROM vendor_invoices WHERE status <> 'PAID'")),
       overduePayables: fromCents(scalar(`SELECT SUM(total - paid_amount) v FROM vendor_invoices WHERE status <> 'PAID' AND due_date < date('now')`)),
       grirBalance: -(tb.find((a) => a.code === '210000')?.balance ?? 0),
@@ -155,6 +211,7 @@ export function transactionRoutes(db: DB) {
       belowReorder: stock.filter((m) => m.belowReorder).map((m) => ({ id: m.id, code: m.code, name: m.name, qty: m.qty, reorderLevel: m.reorderLevel, uom: m.uom })),
       recentJournals: fi.listJournals(db, {}).slice(0, 8),
       dueSoon: mm.listInvoices(db, { open: true }).slice(0, 8),
+      receivablesDue: sd.listCustomerInvoices(db, { open: true }).slice(0, 8),
     };
   }));
 

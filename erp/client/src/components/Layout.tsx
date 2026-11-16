@@ -19,6 +19,16 @@ const NAV: { section: string; items: { to: string; label: string; admin?: boolea
     ],
   },
   {
+    section: 'Sales',
+    items: [
+      { to: '/sales/orders', label: 'Sales Orders' },
+      { to: '/sales/customers', label: 'Customers' },
+      { to: '/sales/invoices', label: 'Customer Invoices' },
+      { to: '/sales/receipts', label: 'Incoming Payments' },
+      { to: '/sales/ar-aging', label: 'AR Aging' },
+    ],
+  },
+  {
     section: 'Purchasing',
     items: [
       { to: '/purchasing/orders', label: 'Purchase Orders' },
@@ -42,7 +52,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-40 flex h-12 items-center justify-between bg-shell px-4 text-white">
+      <header className="print:hidden sticky top-0 z-40 flex h-12 items-center justify-between bg-shell px-4 text-white">
         <div className="flex items-center gap-3">
           <button className="md:hidden" onClick={() => setOpen(!open)} aria-label="Toggle menu">
             ☰
@@ -60,7 +70,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
       <div className="flex">
-        <nav className={`${open ? 'block' : 'hidden'} fixed inset-y-12 left-0 z-30 w-56 overflow-y-auto border-r border-slate-200 bg-white md:sticky md:top-12 md:block md:h-[calc(100vh-3rem)]`}>
+        <nav className={`${open ? 'block' : 'hidden'} print:!hidden fixed inset-y-12 left-0 z-30 w-56 overflow-y-auto border-r border-slate-200 bg-white md:sticky md:top-12 md:block md:h-[calc(100vh-3rem)]`}>
           {NAV.map((g) => {
             const items = g.items.filter((i) => !i.admin || user?.role === 'admin');
             if (!items.length) return null;
@@ -84,7 +94,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+        <main className="min-w-0 flex-1 p-4 md:p-6 print:p-0">{children}</main>
       </div>
     </div>
   );

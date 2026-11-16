@@ -68,6 +68,9 @@ export function Empty({ children = 'No data' }: { children?: ReactNode }) {
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-slate-100 text-slate-700',
   RELEASED: 'bg-blue-100 text-blue-800',
+  CONFIRMED: 'bg-blue-100 text-blue-800',
+  PARTIALLY_DELIVERED: 'bg-amber-100 text-amber-800',
+  DELIVERED: 'bg-emerald-100 text-emerald-800',
   PARTIALLY_RECEIVED: 'bg-amber-100 text-amber-800',
   RECEIVED: 'bg-emerald-100 text-emerald-800',
   CLOSED: 'bg-slate-200 text-slate-700',

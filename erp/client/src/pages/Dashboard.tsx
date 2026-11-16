@@ -11,16 +11,33 @@ export default function Dashboard() {
       <PageHeader title="Dashboard" subtitle={`${d.company} · all amounts in ${d.currency}`} />
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Cash & bank" value={fmtMoney(d.cash)} />
-        <Kpi label="Inventory value" value={fmtMoney(d.inventoryValue)} />
-        <Kpi label="Open payables" value={fmtMoney(d.openPayables)} hint={d.overduePayables > 0 ? `${fmtMoney(d.overduePayables)} overdue` : 'Nothing overdue'} tone={d.overduePayables > 0 ? 'warn' : 'default'} />
+        <Kpi label="Revenue YTD" value={fmtMoney(d.revenueYtd)} />
         <Kpi label="Net income YTD" value={fmtMoney(d.netIncomeYtd)} tone={d.netIncomeYtd >= 0 ? 'good' : 'warn'} />
-        <Kpi label="GR/IR (received, not invoiced)" value={fmtMoney(d.grirBalance)} />
-        <Kpi label="Open purchase orders" value={d.openPOs} hint={`${d.draftPOs} draft`} />
-        <Kpi label="Below reorder level" value={d.belowReorder.length} tone={d.belowReorder.length ? 'warn' : 'good'} />
-        <Kpi label="Total assets" value={fmtMoney(d.totalAssets)} />
+        <Kpi label="Inventory value" value={fmtMoney(d.inventoryValue)} />
+        <Kpi label="Open receivables" value={fmtMoney(d.openReceivables)} hint={d.overdueReceivables > 0 ? `${fmtMoney(d.overdueReceivables)} overdue` : 'Nothing overdue'} tone={d.overdueReceivables > 0 ? 'warn' : 'default'} />
+        <Kpi label="Open payables" value={fmtMoney(d.openPayables)} hint={d.overduePayables > 0 ? `${fmtMoney(d.overduePayables)} overdue` : 'Nothing overdue'} tone={d.overduePayables > 0 ? 'warn' : 'default'} />
+        <Kpi label="Open sales orders" value={d.openSOs} hint={d.toBill ? `${d.toBill} with deliveries to invoice` : 'Nothing waiting for billing'} tone={d.toBill ? 'warn' : 'default'} />
+        <Kpi label="Open purchase orders" value={d.openPOs} hint={`${d.draftPOs} draft · GR/IR ${fmtMoney(d.grirBalance)}`} />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card title="Invoices due" actions={<Link className="link text-xs" to="/finance/invoices">All invoices</Link>}>
+        <Card title="Customer invoices due" actions={<Link className="link text-xs" to="/sales/invoices">All customer invoices</Link>}>
+          {d.receivablesDue.length === 0 ? <Empty>No open customer invoices</Empty> : (
+            <table className="tbl">
+              <thead><tr><th>Invoice</th><th>Customer</th><th>Due</th><th className="num">Open</th></tr></thead>
+              <tbody>
+                {d.receivablesDue.map((i: any) => (
+                  <tr key={i.id}>
+                    <td><Link className="link" to={`/sales/invoices/${i.id}`}>{i.doc_no}</Link></td>
+                    <td>{i.customer_name}</td>
+                    <td className={i.due_date < new Date().toISOString().slice(0, 10) ? 'font-medium text-red-600' : ''}>{i.due_date}</td>
+                    <td className="num">{fmtMoney(i.open_amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+        <Card title="Vendor invoices due" actions={<Link className="link text-xs" to="/finance/invoices">All vendor invoices</Link>}>
           {d.dueSoon.length === 0 ? <Empty>No open invoices</Empty> : (
             <table className="tbl">
               <thead><tr><th>Invoice</th><th>Vendor</th><th>Due</th><th className="num">Open</th></tr></thead>
@@ -37,7 +54,7 @@ export default function Dashboard() {
             </table>
           )}
         </Card>
-        <Card title="Materials below reorder level" actions={<Link className="link text-xs" to="/inventory/stock">Stock overview</Link>}>
+        <Card title="Materials below reorder level" className="xl:col-span-2" actions={<Link className="link text-xs" to="/inventory/stock">Stock overview</Link>}>
           {d.belowReorder.length === 0 ? <Empty>All materials sufficiently stocked</Empty> : (
             <table className="tbl">
               <thead><tr><th>Material</th><th className="num">On hand</th><th className="num">Reorder level</th><th /></tr></thead>

@@ -69,7 +69,7 @@ export function Ledger() {
         {!account ? <Empty>Choose an account</Empty> : !data ? <Loading /> : (
           <div className="overflow-x-auto">
             <table className="tbl">
-              <thead><tr><th>Date</th><th>Document</th><th>Source</th><th>Text</th><th>Vendor / Material</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+              <thead><tr><th>Date</th><th>Document</th><th>Source</th><th>Text</th><th>Partner / Material</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 <tr className="bg-slate-50 italic"><td colSpan={7}>Opening balance</td><td className="num">{fmtMoney(data.openingBalance)}</td></tr>
                 {data.lines.map((l: any, i: number) => (
@@ -78,7 +78,7 @@ export function Ledger() {
                     <td><Link className="link font-mono" to={`/finance/journals/${l.entry_id}`}>{l.doc_no}</Link></td>
                     <td>{l.source}</td>
                     <td>{l.text}</td>
-                    <td className="text-slate-500">{l.vendor_name ?? l.material_code}</td>
+                    <td className="text-slate-500">{l.vendor_name ?? l.customer_name ?? l.material_code}</td>
                     <td className="num">{l.debit ? fmtMoney(l.debit) : ''}</td>
                     <td className="num">{l.credit ? fmtMoney(l.credit) : ''}</td>
                     <td className="num">{fmtMoney(l.balance)}</td>

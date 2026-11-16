@@ -9,6 +9,7 @@ export const MOVEMENT_TYPES: Record<string, string> = {
   '201': 'Goods issue to consumption',
   '301': 'Transfer between warehouses',
   '561': 'Initial stock entry',
+  '601': 'Goods issue for delivery',
   '701': 'Physical inventory gain',
   '702': 'Physical inventory loss',
 };
@@ -68,6 +69,17 @@ function issueValue(db: DB, materialId: number, qty: number): number {
   return Math.round((m.stock_value * qty) / total);
 }
 
+/** Reduce valuated stock at moving average price. Returns the value removed (cents). Caller posts the journal. */
+export function issueFromStock(db: DB, materialId: number, warehouseId: number, qty: number): number {
+  const mat = getMaterial(db, materialId);
+  const available = warehouseQty(db, materialId, warehouseId);
+  if (available < qty) throw badRequest(`Insufficient stock for ${mat.code}: available ${available}, requested ${qty}`);
+  const amount = issueValue(db, materialId, qty);
+  changeQty(db, materialId, warehouseId, -qty);
+  db.prepare('UPDATE materials SET stock_value = stock_value - ? WHERE id = ?').run(amount, materialId);
+  return amount;
+}
+
 /** Increase valuated stock (used by GR, initial entry, gains). Caller posts the journal. */
 export function receiveIntoStock(db: DB, materialId: number, warehouseId: number, qty: number, valueCents: number) {
   changeQty(db, materialId, warehouseId, qty);
@@ -85,6 +97,7 @@ export function recordMovement(
     qty: number;
     amount: number;
     poLineId?: number | null;
+    soLineId?: number | null;
     journalEntryId?: number | null;
     postingDate: string;
     note?: string | null;
@@ -93,7 +106,7 @@ export function recordMovement(
 ) {
   db.prepare(
     `INSERT INTO stock_movements(doc_no, movement_type, material_id, warehouse_id, to_warehouse_id, qty, amount,
-       po_line_id, journal_entry_id, posting_date, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       po_line_id, so_line_id, journal_entry_id, posting_date, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     m.docNo,
     m.type,
@@ -103,6 +116,7 @@ export function recordMovement(
     m.qty,
     m.amount,
     m.poLineId ?? null,
+    m.soLineId ?? null,
     m.journalEntryId ?? null,
     m.postingDate,
     m.note ?? null,
@@ -131,7 +145,7 @@ export interface MovementInput {
 /** Post a goods movement (non-PO). Updates quantities, valuation, and posts to the GL in one transaction. */
 export function postGoodsMovement(db: DB, input: MovementInput, userId: number | null) {
   const { movementType: type, warehouseId, items } = input;
-  if (!MOVEMENT_TYPES[type] || (type as string) === '101') throw badRequest(`Movement type ${type} cannot be posted here`);
+  if (!MOVEMENT_TYPES[type] || ['101', '601'].includes(type)) throw badRequest(`Movement type ${type} cannot be posted here`);
   if (!items.length) throw badRequest('At least one item is required');
   assertWarehouse(db, warehouseId);
   if (type === '301') {
@@ -159,12 +173,7 @@ export function postGoodsMovement(db: DB, input: MovementInput, userId: number |
       switch (type) {
         case '201':
         case '702': {
-          // Value at moving average before reducing quantity (changeQty rejects negative stock)
-          const available = warehouseQty(db, mat.id, warehouseId);
-          if (available < qty) throw badRequest(`Insufficient stock for ${mat.code}: available ${available}, requested ${qty}`);
-          amount = issueValue(db, mat.id, qty);
-          changeQty(db, mat.id, warehouseId, -qty);
-          db.prepare('UPDATE materials SET stock_value = stock_value - ? WHERE id = ?').run(amount, mat.id);
+          amount = issueFromStock(db, mat.id, warehouseId, qty);
           jlines.push({ accountId: offsetAcc!, debit: amount, memo: `${MOVEMENT_TYPES[type]} ${mat.code}`, materialId: mat.id });
           jlines.push({ accountId: inventoryAcc, credit: amount, memo: `${mat.code} x ${qty}`, materialId: mat.id });
           break;
@@ -260,11 +269,12 @@ export function listMovements(db: DB, q: { materialId?: number; warehouseId?: nu
       `SELECT sm.id, sm.doc_no, sm.movement_type, sm.posting_date, sm.qty, sm.amount / 100.0 AS amount, sm.note,
               m.code AS material_code, m.name AS material_name, m.uom,
               w.code AS warehouse_code, tw.code AS to_warehouse_code,
-              je.id AS journal_entry_id, je.doc_no AS journal_doc_no, po.doc_no AS po_doc_no, u.full_name AS created_by_name
+              je.id AS journal_entry_id, je.doc_no AS journal_doc_no, po.doc_no AS po_doc_no, so.doc_no AS so_doc_no, u.full_name AS created_by_name
        FROM stock_movements sm JOIN materials m ON m.id = sm.material_id
        JOIN warehouses w ON w.id = sm.warehouse_id LEFT JOIN warehouses tw ON tw.id = sm.to_warehouse_id
        LEFT JOIN journal_entries je ON je.id = sm.journal_entry_id
        LEFT JOIN po_lines pl ON pl.id = sm.po_line_id LEFT JOIN purchase_orders po ON po.id = pl.po_id
+       LEFT JOIN so_lines sl ON sl.id = sm.so_line_id LEFT JOIN sales_orders so ON so.id = sl.so_id
        LEFT JOIN users u ON u.id = sm.created_by
        WHERE (@mat IS NULL OR sm.material_id = @mat) AND (@wh IS NULL OR sm.warehouse_id = @wh OR sm.to_warehouse_id = @wh)
          AND (@type IS NULL OR sm.movement_type = @type)

@@ -3,7 +3,9 @@ import { useAuth } from './auth';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import { Accounts, Materials, Users, Vendors, Warehouses } from './pages/MasterData';
+import { Accounts, Customers, Materials, Users, Vendors, Warehouses } from './pages/MasterData';
+import { SODetail, SOEdit, SOList } from './pages/sales/SalesOrders';
+import { ArAging, CustomerInvoiceDetail, CustomerInvoiceList, ReceiptList } from './pages/sales/Receivables';
 import { JournalDetail, JournalList, JournalNew } from './pages/finance/Journals';
 import { Ledger, Statements, TrialBalance, ApAging } from './pages/finance/Reports';
 import { InvoiceDetail, InvoiceList, PaymentList } from './pages/finance/Payables';
@@ -32,6 +34,15 @@ export default function App() {
         <Route path="/finance/payments" element={<PaymentList />} />
         <Route path="/finance/ap-aging" element={<ApAging />} />
         <Route path="/finance/account-determination" element={<AccountDetermination />} />
+        <Route path="/sales/orders" element={<SOList />} />
+        <Route path="/sales/orders/new" element={<SOEdit />} />
+        <Route path="/sales/orders/:id" element={<SODetail />} />
+        <Route path="/sales/orders/:id/edit" element={<SOEdit />} />
+        <Route path="/sales/customers" element={<Customers />} />
+        <Route path="/sales/invoices" element={<CustomerInvoiceList />} />
+        <Route path="/sales/invoices/:id" element={<CustomerInvoiceDetail />} />
+        <Route path="/sales/receipts" element={<ReceiptList />} />
+        <Route path="/sales/ar-aging" element={<ArAging />} />
         <Route path="/purchasing/vendors" element={<Vendors />} />
         <Route path="/purchasing/orders" element={<POList />} />
         <Route path="/purchasing/orders/new" element={<POEdit />} />

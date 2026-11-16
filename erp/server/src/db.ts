@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','finance','purchasing','warehouse')),
+  role TEXT NOT NULL CHECK (role IN ('admin','finance','purchasing','warehouse','sales')),
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS journal_lines (
   credit INTEGER NOT NULL DEFAULT 0,
   memo TEXT,
   vendor_id INTEGER REFERENCES vendors(id),
+  customer_id INTEGER REFERENCES customers(id),
   material_id INTEGER REFERENCES materials(id),
   CHECK (debit >= 0 AND credit >= 0 AND (debit = 0 OR credit = 0))
 );
@@ -100,6 +101,7 @@ CREATE TABLE IF NOT EXISTS materials (
   uom TEXT NOT NULL DEFAULT 'EA',
   material_type TEXT NOT NULL DEFAULT 'RAW' CHECK (material_type IN ('RAW','TRADING','FINISHED','CONSUMABLE')),
   reorder_level REAL NOT NULL DEFAULT 0,
+  sales_price INTEGER NOT NULL DEFAULT 0,    -- list price in cents
   stock_value INTEGER NOT NULL DEFAULT 0,   -- total valuated stock in cents (all warehouses)
   is_active INTEGER NOT NULL DEFAULT 1
 );
@@ -114,13 +116,14 @@ CREATE TABLE IF NOT EXISTS stock (
 CREATE TABLE IF NOT EXISTS stock_movements (
   id INTEGER PRIMARY KEY,
   doc_no TEXT NOT NULL,
-  movement_type TEXT NOT NULL,   -- 101 GR for PO, 201 GI, 301 transfer, 561 initial, 701 gain, 702 loss
+  movement_type TEXT NOT NULL,   -- 101 GR for PO, 201 GI, 301 transfer, 561 initial, 601 delivery, 701 gain, 702 loss
   material_id INTEGER NOT NULL REFERENCES materials(id),
   warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
   to_warehouse_id INTEGER REFERENCES warehouses(id),
   qty REAL NOT NULL,
   amount INTEGER NOT NULL DEFAULT 0,
   po_line_id INTEGER REFERENCES po_lines(id),
+  so_line_id INTEGER REFERENCES so_lines(id),
   journal_entry_id INTEGER REFERENCES journal_entries(id),
   posting_date TEXT NOT NULL,
   note TEXT,
@@ -195,6 +198,85 @@ CREATE TABLE IF NOT EXISTS payments (
   created_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ===== Sales =====
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  address TEXT,
+  tax_id TEXT,
+  payment_terms_days INTEGER NOT NULL DEFAULT 30,
+  credit_limit INTEGER NOT NULL DEFAULT 0,   -- cents; 0 = no credit check
+  is_active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS sales_orders (
+  id INTEGER PRIMARY KEY,
+  doc_no TEXT NOT NULL UNIQUE,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+  order_date TEXT NOT NULL,
+  requested_date TEXT,
+  customer_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'DRAFT'
+    CHECK (status IN ('DRAFT','CONFIRMED','PARTIALLY_DELIVERED','DELIVERED','CLOSED','CANCELLED')),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS so_lines (
+  id INTEGER PRIMARY KEY,
+  so_id INTEGER NOT NULL REFERENCES sales_orders(id),
+  line_no INTEGER NOT NULL,
+  material_id INTEGER NOT NULL REFERENCES materials(id),
+  qty REAL NOT NULL CHECK (qty > 0),
+  unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
+  delivered_qty REAL NOT NULL DEFAULT 0,
+  billed_qty REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS customer_invoices (
+  id INTEGER PRIMARY KEY,
+  doc_no TEXT NOT NULL UNIQUE,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  so_id INTEGER REFERENCES sales_orders(id),
+  invoice_date TEXT NOT NULL,
+  due_date TEXT NOT NULL,
+  total INTEGER NOT NULL,
+  paid_amount INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','PARTIALLY_PAID','PAID')),
+  journal_entry_id INTEGER REFERENCES journal_entries(id),
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS customer_invoice_lines (
+  id INTEGER PRIMARY KEY,
+  invoice_id INTEGER NOT NULL REFERENCES customer_invoices(id),
+  so_line_id INTEGER REFERENCES so_lines(id),
+  description TEXT,
+  qty REAL NOT NULL,
+  unit_price INTEGER NOT NULL,
+  amount INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS receipts (
+  id INTEGER PRIMARY KEY,
+  doc_no TEXT NOT NULL UNIQUE,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  invoice_id INTEGER NOT NULL REFERENCES customer_invoices(id),
+  receipt_date TEXT NOT NULL,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  bank_account_id INTEGER NOT NULL REFERENCES accounts(id),
+  reference TEXT,
+  journal_entry_id INTEGER REFERENCES journal_entries(id),
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 /** SAP-style number ranges per document type. */
@@ -204,6 +286,9 @@ const NUMBER_RANGES: [string, number][] = [
   ['MAT', 5000000001], // material documents
   ['INV', 5100000001], // vendor invoices
   ['PAY', 1500000001], // outgoing payments
+  ['SO', 10000001],    // sales orders
+  ['BIL', 90000001],   // customer invoices (billing documents)
+  ['RCP', 1400000001], // incoming payments
 ];
 
 const ACCOUNTS: [string, string, string][] = [
@@ -221,6 +306,7 @@ const ACCOUNTS: [string, string, string][] = [
   ['400000', 'Sales Revenue', 'REVENUE'],
   ['490000', 'Other Income', 'REVENUE'],
   ['500000', 'Material Consumption', 'EXPENSE'],
+  ['505000', 'Cost of Goods Sold', 'EXPENSE'],
   ['510000', 'Purchase Price Differences', 'EXPENSE'],
   ['520000', 'Inventory Differences', 'EXPENSE'],
   ['600000', 'Salaries & Wages', 'EXPENSE'],
@@ -237,6 +323,9 @@ const DETERMINATION: [string, string, string][] = [
   ['PRICE_DIFF', '510000', 'Invoice price differences (PRD)'],
   ['INV_DIFF', '520000', 'Physical inventory differences (GBB-INV)'],
   ['OPENING', '390000', 'Initial stock entry offset'],
+  ['AR', '120000', 'Customer reconciliation account'],
+  ['REVENUE', '400000', 'Sales revenue (ERL)'],
+  ['COGS', '505000', 'Cost of goods sold on delivery (GBB-VAX)'],
 ];
 
 export function openDb(file?: string): DB {
@@ -245,9 +334,46 @@ export function openDb(file?: string): DB {
   const db = new Database(target);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  migrate(db);
   db.exec(SCHEMA);
   bootstrap(db);
   return db;
+}
+
+/**
+ * Upgrades databases created by earlier versions. CREATE TABLE IF NOT EXISTS adds new tables,
+ * but new columns and changed CHECK constraints on existing tables need explicit steps.
+ */
+function migrate(db: DB) {
+  const exists = (t: string) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+  const hasColumn = (t: string, c: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).some((r) => r.name === c);
+  const addColumn = (t: string, c: string, def: string) => exists(t) && !hasColumn(t, c) && db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`);
+
+  addColumn('materials', 'sales_price', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('journal_lines', 'customer_id', 'INTEGER REFERENCES customers(id)');
+  addColumn('stock_movements', 'so_line_id', 'INTEGER REFERENCES so_lines(id)');
+
+  // v0.1 users table did not allow the 'sales' role: rebuild it with the new CHECK constraint.
+  const usersSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get() as { sql: string } | undefined)?.sql;
+  if (usersSql && !usersSql.includes("'sales'")) {
+    db.pragma('foreign_keys = OFF');
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE users_new (
+          id INTEGER PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          full_name TEXT NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('admin','finance','purchasing','warehouse','sales')),
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO users_new SELECT id, username, password_hash, full_name, role, is_active, created_at FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_new RENAME TO users;`);
+    })();
+    db.pragma('foreign_keys = ON');
+  }
 }
 
 /** Idempotent base configuration: number ranges, chart of accounts, account determination, admin user. */
@@ -259,11 +385,9 @@ function bootstrap(db: DB) {
     const nr = db.prepare('INSERT OR IGNORE INTO number_ranges(object, next_no) VALUES (?, ?)');
     NUMBER_RANGES.forEach(([o, n]) => nr.run(o, n));
 
-    const hasAccounts = db.prepare('SELECT COUNT(*) c FROM accounts').get() as { c: number };
-    if (hasAccounts.c === 0) {
-      const acc = db.prepare('INSERT INTO accounts(code, name, type) VALUES (?, ?, ?)');
-      ACCOUNTS.forEach((a) => acc.run(...a));
-    }
+    // Insert standard accounts that are missing (by code); never overwrite user changes.
+    const acc = db.prepare('INSERT OR IGNORE INTO accounts(code, name, type) VALUES (?, ?, ?)');
+    ACCOUNTS.forEach((a) => acc.run(...a));
     const det = db.prepare(
       `INSERT OR IGNORE INTO account_determination(key, account_id, description)
        SELECT ?, id, ? FROM accounts WHERE code = ?`,

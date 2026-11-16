@@ -4,7 +4,7 @@ import { api, fmtMoney, qs, todayIso, useApi } from '../../api';
 import { useAuth } from '../../auth';
 import { Card, Empty, ErrorBanner, Field, Loading, PageHeader, Status } from '../../components/ui';
 
-const SOURCES = ['MANUAL', 'GR', 'GI', 'INITIAL', 'ADJUST', 'INVOICE', 'PAYMENT', 'REVERSAL'];
+const SOURCES = ['MANUAL', 'GR', 'GI', 'INITIAL', 'ADJUST', 'INVOICE', 'PAYMENT', 'DELIVERY', 'BILLING', 'RECEIPT', 'REVERSAL'];
 
 export function JournalList() {
   const { can } = useAuth();
@@ -194,14 +194,14 @@ export function JournalDetail() {
       <Card title="Line items">
         <div className="overflow-x-auto">
           <table className="tbl">
-            <thead><tr><th>#</th><th>Account</th><th>Text</th><th>Vendor</th><th>Material</th><th className="num">Debit</th><th className="num">Credit</th></tr></thead>
+            <thead><tr><th>#</th><th>Account</th><th>Text</th><th>Business partner</th><th>Material</th><th className="num">Debit</th><th className="num">Credit</th></tr></thead>
             <tbody>
               {j.lines.map((l: any) => (
                 <tr key={l.line_no}>
                   <td>{l.line_no}</td>
                   <td><Link className="link" to={`/finance/ledger?account=${l.account_id}`}><span className="font-mono">{l.account_code}</span> {l.account_name}</Link></td>
                   <td>{l.memo}</td>
-                  <td>{l.vendor_name}</td>
+                  <td>{l.vendor_name ?? l.customer_name}</td>
                   <td className="font-mono">{l.material_code}</td>
                   <td className="num">{l.debit ? fmtMoney(l.debit) : ''}</td>
                   <td className="num">{l.credit ? fmtMoney(l.credit) : ''}</td>

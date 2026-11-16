@@ -73,10 +73,10 @@ export function MovementList() {
         {loading && !data ? <Loading /> : !data?.length ? <Empty /> : (
           <div className="overflow-x-auto">
             <table className="tbl">
-              <thead><tr><th>Mat. doc</th><th>Date</th><th>Type</th><th>Material</th><th>Warehouse</th><th className="num">Qty</th><th className="num">Amount</th><th>PO</th><th>FI doc</th><th>Note</th></tr></thead>
+              <thead><tr><th>Mat. doc</th><th>Date</th><th>Type</th><th>Material</th><th>Warehouse</th><th className="num">Qty</th><th className="num">Amount</th><th>PO / SO</th><th>FI doc</th><th>Note</th></tr></thead>
               <tbody>
                 {data.map((m) => {
-                  const out = ['201', '702'].includes(m.movement_type);
+                  const out = ['201', '601', '702'].includes(m.movement_type);
                   return (
                     <tr key={m.id}>
                       <td className="font-mono">{m.doc_no}</td>
@@ -86,7 +86,7 @@ export function MovementList() {
                       <td>{m.warehouse_code}{m.to_warehouse_code && ` → ${m.to_warehouse_code}`}</td>
                       <td className={`num ${out ? 'text-red-600' : ''}`}>{out ? '-' : ''}{fmtQty(m.qty)} {m.uom}</td>
                       <td className="num">{fmtMoney(m.amount)}</td>
-                      <td className="font-mono">{m.po_doc_no}</td>
+                      <td className="font-mono">{m.po_doc_no ?? m.so_doc_no}</td>
                       <td>{m.journal_entry_id && <Link className="link font-mono" to={`/finance/journals/${m.journal_entry_id}`}>{m.journal_doc_no}</Link>}</td>
                       <td className="text-slate-500">{m.note}</td>
                     </tr>
@@ -146,7 +146,7 @@ export function MovementNew() {
 
   return (
     <form onSubmit={submit}>
-      <PageHeader title="Post Goods Movement" subtitle="Goods receipts for purchase orders are posted from the PO" />
+      <PageHeader title="Post Goods Movement" subtitle="Goods receipts are posted from the purchase order, deliveries from the sales order" />
       <ErrorBanner error={error} onClose={() => setError(null)} />
       <Card className="mb-4">
         <div className="grid gap-3 p-4 md:grid-cols-3">

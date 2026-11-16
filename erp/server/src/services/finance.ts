@@ -9,6 +9,7 @@ export interface JournalLineInput {
   credit?: number; // cents
   memo?: string | null;
   vendorId?: number | null;
+  customerId?: number | null;
   materialId?: number | null;
 }
 
@@ -52,10 +53,10 @@ export function postJournal(db: DB, input: JournalInput, userId: number | null):
       .run(docNo, input.postingDate ?? today(), input.reference ?? null, input.description ?? null, input.source, input.sourceDoc ?? null, userId);
     const id = Number(lastInsertRowid);
     const ins = db.prepare(
-      `INSERT INTO journal_lines(entry_id, line_no, account_id, debit, credit, memo, vendor_id, material_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO journal_lines(entry_id, line_no, account_id, debit, credit, memo, vendor_id, customer_id, material_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    lines.forEach((l, i) => ins.run(id, i + 1, l.accountId, l.debit, l.credit, l.memo ?? null, l.vendorId ?? null, l.materialId ?? null));
+    lines.forEach((l, i) => ins.run(id, i + 1, l.accountId, l.debit, l.credit, l.memo ?? null, l.vendorId ?? null, l.customerId ?? null, l.materialId ?? null));
     return { id, docNo };
   })();
 }
@@ -83,6 +84,7 @@ export function reverseJournal(db: DB, entryId: number, userId: number, postingD
           credit: l.debit,
           memo: l.memo,
           vendorId: l.vendor_id,
+          customerId: l.customer_id,
           materialId: l.material_id,
         })),
       },
@@ -109,9 +111,10 @@ export function getJournal(db: DB, id: number) {
     .prepare(
       `SELECT jl.line_no, jl.account_id, a.code AS account_code, a.name AS account_name,
               jl.debit / 100.0 AS debit, jl.credit / 100.0 AS credit, jl.memo,
-              v.code AS vendor_code, v.name AS vendor_name, m.code AS material_code
+              v.code AS vendor_code, v.name AS vendor_name, c.code AS customer_code, c.name AS customer_name, m.code AS material_code
        FROM journal_lines jl JOIN accounts a ON a.id = jl.account_id
-       LEFT JOIN vendors v ON v.id = jl.vendor_id LEFT JOIN materials m ON m.id = jl.material_id
+       LEFT JOIN vendors v ON v.id = jl.vendor_id LEFT JOIN customers c ON c.id = jl.customer_id
+       LEFT JOIN materials m ON m.id = jl.material_id
        WHERE jl.entry_id = ? ORDER BY jl.line_no`,
     )
     .all(id);
@@ -210,9 +213,9 @@ export function accountLedger(db: DB, accountId: number, from?: string, to?: str
   const items = db
     .prepare(
       `SELECT je.id AS entry_id, je.doc_no, je.posting_date, je.source, je.reference, COALESCE(jl.memo, je.description) AS text,
-              jl.debit, jl.credit, v.name AS vendor_name, m.code AS material_code
+              jl.debit, jl.credit, v.name AS vendor_name, c.name AS customer_name, m.code AS material_code
        FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
-       LEFT JOIN vendors v ON v.id = jl.vendor_id LEFT JOIN materials m ON m.id = jl.material_id
+       LEFT JOIN vendors v ON v.id = jl.vendor_id LEFT JOIN customers c ON c.id = jl.customer_id LEFT JOIN materials m ON m.id = jl.material_id
        WHERE jl.account_id = @acc AND (@from IS NULL OR je.posting_date >= @from) AND (@to IS NULL OR je.posting_date <= @to)
        ORDER BY je.posting_date, je.id, jl.line_no`,
     )

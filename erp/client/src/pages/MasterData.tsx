@@ -216,12 +216,42 @@ export const Vendors = () => (
   />
 );
 
+export const Customers = () => (
+  <MasterDataPage
+    title="Customers"
+    subtitle="Customer master data with payment terms and credit limit (0 = no credit check)"
+    endpoint="/customers"
+    writers={['sales', 'finance']}
+    search={(r) => `${r.code} ${r.name} ${r.email ?? ''}`}
+    fields={[
+      { name: 'code', label: 'Customer number', immutable: true },
+      { name: 'name', label: 'Name' },
+      { name: 'email', label: 'Email', type: 'email' },
+      { name: 'phone', label: 'Phone' },
+      { name: 'tax_id', label: 'Tax ID' },
+      { name: 'payment_terms_days', label: 'Payment terms (days)', type: 'number', default: 30 },
+      { name: 'credit_limit', label: 'Credit limit', type: 'number', default: 0 },
+      { name: 'address', label: 'Address', type: 'textarea' },
+      { name: 'is_active', label: 'Active (unblocked for sales)', type: 'checkbox' },
+    ]}
+    columns={[
+      { label: 'Customer', render: (r) => <span className="font-mono">{r.code}</span> },
+      { label: 'Name', render: (r) => r.name },
+      { label: 'Email', render: (r) => r.email },
+      { label: 'Terms', render: (r) => `Net ${r.payment_terms_days}` },
+      { label: 'Credit limit', render: (r) => (r.credit_limit ? fmtMoney(r.credit_limit) : '—'), num: true },
+      { label: 'Open receivables', render: (r) => fmtMoney(r.open_balance), num: true },
+      { label: 'Status', render: active },
+    ]}
+  />
+);
+
 export const Materials = () => (
   <MasterDataPage
     title="Materials"
     subtitle="Material master with moving-average valuation"
     endpoint="/materials"
-    writers={['purchasing', 'warehouse']}
+    writers={['purchasing', 'warehouse', 'sales']}
     search={(r) => `${r.code} ${r.name}`}
     fields={[
       { name: 'code', label: 'Material number', immutable: true },
@@ -229,6 +259,7 @@ export const Materials = () => (
       { name: 'uom', label: 'Base unit of measure', default: 'EA' },
       { name: 'material_type', label: 'Material type', type: 'select', options: ['RAW', 'TRADING', 'FINISHED', 'CONSUMABLE'], default: 'RAW' },
       { name: 'reorder_level', label: 'Reorder level', type: 'number', default: 0 },
+      { name: 'sales_price', label: 'Sales list price', type: 'number', default: 0 },
       { name: 'is_active', label: 'Active', type: 'checkbox' },
     ]}
     columns={[
@@ -237,6 +268,7 @@ export const Materials = () => (
       { label: 'Type', render: (r) => r.material_type },
       { label: 'Stock', render: (r) => `${fmtQty(r.total_qty)} ${r.uom}`, num: true },
       { label: 'Reorder at', render: (r) => fmtQty(r.reorder_level), num: true },
+      { label: 'List price', render: (r) => fmtMoney(r.sales_price), num: true },
       { label: 'Stock value', render: (r) => fmtMoney(r.stock_value), num: true },
       { label: 'Status', render: active },
     ]}
@@ -288,14 +320,14 @@ export const Accounts = () => (
 export const Users = () => (
   <MasterDataPage
     title="Users"
-    subtitle="Roles: admin (everything), finance, purchasing, warehouse"
+    subtitle="Roles: admin (everything), finance, purchasing, warehouse, sales"
     endpoint="/users"
     writers={[]}
     search={(r) => `${r.username} ${r.full_name} ${r.role}`}
     fields={[
       { name: 'username', label: 'Username' },
       { name: 'full_name', label: 'Full name' },
-      { name: 'role', label: 'Role', type: 'select', options: ['admin', 'finance', 'purchasing', 'warehouse'], default: 'finance' },
+      { name: 'role', label: 'Role', type: 'select', options: ['admin', 'finance', 'purchasing', 'warehouse', 'sales'], default: 'finance' },
       { name: 'password', label: 'Password', type: 'password' },
       { name: 'is_active', label: 'Active', type: 'checkbox' },
     ]}

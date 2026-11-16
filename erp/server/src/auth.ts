@@ -5,7 +5,7 @@ import type { DB } from './db.ts';
 import { getSetting } from './db.ts';
 import { HttpError } from './lib/errors.ts';
 
-export type Role = 'admin' | 'finance' | 'purchasing' | 'warehouse';
+export type Role = 'admin' | 'finance' | 'purchasing' | 'warehouse' | 'sales';
 export interface AuthUser {
   id: number;
   username: string;
